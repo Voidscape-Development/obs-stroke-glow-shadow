@@ -100,8 +100,8 @@ static glow_filter_data_t *filter_create(obs_source_t *source)
 {
 	glow_filter_data_t *filter = bzalloc(sizeof(glow_filter_data_t));
 
-	dstr_init_copy(&filter->fill_source_name, "");
-	dstr_init_copy(&filter->source_name, "");
+	source_ref_init(&filter->input_ref);
+	source_ref_init(&filter->fill_ref);
 	filter->context = source;
 	filter->input_texture_generated = false;
 	filter->alpha_blur_data = bzalloc(sizeof(alpha_blur_data_t));
@@ -146,20 +146,19 @@ static void glow_filter_destroy(void *data)
 		gs_texrender_destroy(filter->alpha_mask_texrender);
 	}
 
-	if (filter->source_input_source) {
-		obs_weak_source_release(filter->source_input_source);
+	if (filter->source_texrender) {
+		gs_texrender_destroy(filter->source_texrender);
 	}
-
-	if (filter->fill_source_source) {
-		obs_weak_source_release(filter->fill_source_source);
+	if (filter->fill_texrender) {
+		gs_texrender_destroy(filter->fill_texrender);
 	}
 
 	alpha_blur_destroy(filter->alpha_blur_data);
 
-	dstr_free(&filter->fill_source_name);
-	dstr_free(&filter->source_name);
-
 	obs_leave_graphics();
+
+	source_ref_free(&filter->input_ref);
+	source_ref_free(&filter->fill_ref);
 	bfree(filter->alpha_blur_data);
 	bfree(filter);
 }
@@ -200,25 +199,10 @@ static void glow_filter_update(void *data, obs_data_t *settings)
 	filter->glow_position =
 		(enum glow_position)obs_data_get_int(settings, "glow_position");
 
+	// Resolved on the graphics thread, in video_tick.
 	if (filter->is_source) {
-		const char *glow_source_name =
-			obs_data_get_string(settings, "glow_source");
-
-		dstr_copy(&filter->source_name, glow_source_name);
-
-		filter->has_source = (glow_source_name && strlen(glow_source_name));
-
-		if (filter->has_source) {
-			load_glow_source(filter);
-		} else {
-			filter->source_input_source = NULL;
-			filter->width = (uint32_t)0;
-			filter->height = (uint32_t)0;
-		}
-	} else {
-		filter->width = (uint32_t)obs_source_get_width(filter->context);
-		filter->height =
-			(uint32_t)obs_source_get_height(filter->context);
+		source_ref_set_name(&filter->input_ref,
+				    obs_data_get_string(settings, "glow_source"));
 	}
 
 	filter->padding_amount = obs_data_get_int(settings, "glow_padding") == PADDING_MANUAL ? (uint32_t)obs_data_get_int(settings, "padding_amount") : 0;
@@ -267,64 +251,12 @@ static void glow_filter_update(void *data, obs_data_t *settings)
 		filter->offset_texel.y = 0.0f;
 	}
 
-	const char* fill_source_name =
-		obs_data_get_string(settings, "glow_fill_source");
-
-	dstr_copy(&filter->fill_source_name, fill_source_name);
-
-	filter->has_fill_source = (fill_source_name && strlen(fill_source_name));
-
-	if (filter->has_fill_source) {
-		load_glow_fill_source(filter);
-	}
-	else {
-		filter->fill_source_source = NULL;
-	}
+	source_ref_set_name(&filter->fill_ref,
+			    obs_data_get_string(settings, "glow_fill_source"));
 
 	if (filter->reload) {
 		filter->reload = false;
 		load_effects(filter);
-	}
-}
-
-void load_glow_fill_source(glow_filter_data_t* filter)
-{
-	obs_source_t* fill_source = filter->has_fill_source
-		? obs_get_source_by_name(filter->fill_source_name.array)
-		: NULL;
-	if (fill_source) {
-		obs_weak_source_release(filter->fill_source_source);
-		filter->fill_source_source =
-			obs_source_get_weak_source(fill_source);
-		obs_source_release(fill_source);
-	}
-	else {
-		if (filter->fill_source_source) {
-			obs_weak_source_release(filter->fill_source_source);
-		}
-		filter->fill_source_source = NULL;
-	}
-}
-
-void load_glow_source(glow_filter_data_t* filter)
-{
-	obs_source_t* glow_source = filter->has_source
-		? obs_get_source_by_name(filter->source_name.array)
-		: NULL;
-
-	if (glow_source) {
-		obs_weak_source_release(filter->source_input_source);
-		filter->source_input_source =
-			obs_source_get_weak_source(glow_source);
-		filter->width =
-			(uint32_t)obs_source_get_width(glow_source);
-		filter->height =
-			(uint32_t)obs_source_get_height(glow_source);
-		obs_source_release(glow_source);
-	} else {
-		filter->source_input_source = NULL;
-		filter->width = (uint32_t)0;
-		filter->height = (uint32_t)0;
 	}
 }
 
@@ -587,15 +519,11 @@ static obs_properties_t *shadow_source_properties(void *data)
 
 static void glow_filter_video_tick(void *data, float seconds)
 {
-	UNUSED_PARAMETER(seconds);
 	glow_filter_data_t *filter = data;
 
-	if (filter->has_fill_source && filter->fill_source_source == NULL) {
-		load_glow_fill_source(filter);
-	}
-
-	if (filter->is_source && filter->has_source && filter->source_input_source == NULL) {
-		load_glow_source(filter);
+	source_ref_tick(&filter->fill_ref, seconds);
+	if (filter->is_source) {
+		source_ref_tick(&filter->input_ref, seconds);
 	}
 
 	uint32_t base_width = 0;
@@ -612,9 +540,7 @@ static void glow_filter_video_tick(void *data, float seconds)
 		filter->source_width = base_width;
 		filter->source_height = base_height;
 	} else {
-		obs_source_t *input = filter->source_input_source
-			? obs_weak_source_get_source(filter->source_input_source)
-			: NULL;
+		obs_source_t *input = source_ref_get(&filter->input_ref);
 		if (input) {
 			base_width = obs_source_get_width(input);
 			base_height = obs_source_get_height(input);

@@ -45,8 +45,8 @@ static void *stroke_filter_create(obs_data_t *settings, obs_source_t *source)
 {
 	stroke_filter_data_t *filter = bzalloc(sizeof(stroke_filter_data_t));
 
-	dstr_init_copy(&filter->fill_source_name, "");
-	dstr_init_copy(&filter->source_name, "");
+	source_ref_init(&filter->input_ref);
+	source_ref_init(&filter->fill_ref);
 
 	filter->context = source;
 	filter->input_texture_generated = false;
@@ -70,9 +70,6 @@ static void stroke_filter_destroy(void *data)
 
 	obs_enter_graphics();
 
-	dstr_free(&filter->fill_source_name);
-	dstr_free(&filter->source_name);
-
 	if (filter->effect_jump_flood_sdf) {
 		gs_effect_destroy(filter->effect_jump_flood_sdf);
 	}
@@ -89,26 +86,17 @@ static void stroke_filter_destroy(void *data)
 	if (filter->buffer_b) {
 		gs_texrender_destroy(filter->buffer_b);
 	}
-	if (filter->buffer_outer_threshold) {
-		gs_texrender_destroy(filter->buffer_outer_threshold);
+	if (filter->source_texrender) {
+		gs_texrender_destroy(filter->source_texrender);
 	}
-	if (filter->buffer_inner_threshold) {
-		gs_texrender_destroy(filter->buffer_inner_threshold);
-	}
-	if (filter->buffer_outer_distance_field) {
-		gs_texrender_destroy(filter->buffer_outer_distance_field);
-	}
-	if (filter->buffer_inner_distance_field) {
-		gs_texrender_destroy(filter->buffer_inner_distance_field);
-	}
-	if (filter->source_input_source) {
-		obs_weak_source_release(filter->source_input_source);
-	}
-	if (filter->fill_source_source) {
-		obs_weak_source_release(filter->fill_source_source);
+	if (filter->fill_texrender) {
+		gs_texrender_destroy(filter->fill_texrender);
 	}
 
 	obs_leave_graphics();
+
+	source_ref_free(&filter->input_ref);
+	source_ref_free(&filter->fill_ref);
 	bfree(filter);
 }
 
@@ -189,83 +177,17 @@ static void stroke_filter_update(void *data, obs_data_t *settings)
 	}
 
 	filter->fill = obs_data_get_bool(settings, "fill");
-	const char *fill_source_name =
-		obs_data_get_string(settings, "stroke_fill_source");
-
-	dstr_copy(&filter->fill_source_name, fill_source_name);
-
-	filter->has_fill_source = (fill_source_name && strlen(fill_source_name));
-
-	if (filter->has_fill_source) {
-		load_fill_source(filter);
-	} else {
-		filter->fill_source_source = NULL;
-	}
-
+	// Resolved on the graphics thread, in video_tick.
+	source_ref_set_name(&filter->fill_ref,
+			    obs_data_get_string(settings, "stroke_fill_source"));
 	if (filter->is_source) {
-		const char *stroke_source_name =
-			obs_data_get_string(settings, "stroke_source");
-
-		dstr_copy(&filter->source_name, stroke_source_name);
-
-		filter->has_source = (stroke_source_name && strlen(stroke_source_name));
-
-		if (filter->has_source) {
-			load_source(filter);
-		} else {
-			filter->source_input_source = NULL;
-			filter->width = (uint32_t)0;
-			filter->height = (uint32_t)0;
-		}
-	} else {
-		filter->width = (uint32_t)obs_source_get_width(filter->context);
-		filter->height =
-			(uint32_t)obs_source_get_height(filter->context);
+		source_ref_set_name(&filter->input_ref,
+				    obs_data_get_string(settings, "stroke_source"));
 	}
 
 	if (filter->reload) {
 		filter->reload = false;
 		load_effects(filter);
-	}
-}
-
-void load_fill_source(stroke_filter_data_t* filter)
-{
-	obs_source_t* fill_source = filter->has_fill_source
-		? obs_get_source_by_name(filter->fill_source_name.array)
-		: NULL;
-	if (fill_source) {
-		obs_weak_source_release(filter->fill_source_source);
-		filter->fill_source_source =
-			obs_source_get_weak_source(fill_source);
-		obs_source_release(fill_source);
-	}
-	else {
-		if (filter->fill_source_source) {
-			obs_weak_source_release(filter->fill_source_source);
-		}
-		filter->fill_source_source = NULL;
-	}
-}
-
-void load_source(stroke_filter_data_t* filter)
-{
-	obs_source_t* stroke_source = filter->has_source
-		? obs_get_source_by_name(filter->source_name.array)
-		: NULL;
-	if (stroke_source) {
-		obs_weak_source_release(filter->source_input_source);
-		filter->source_input_source =
-			obs_source_get_weak_source(stroke_source);
-		filter->width =
-			(uint32_t)obs_source_get_width(stroke_source);
-		filter->height =
-			(uint32_t)obs_source_get_height(stroke_source);
-		obs_source_release(stroke_source);
-	} else {
-		filter->source_input_source = NULL;
-		filter->width = (uint32_t)0;
-		filter->height = (uint32_t)0;
 	}
 }
 
@@ -300,20 +222,15 @@ static void stroke_filter_video_render(void *data, gs_effect_t *effect)
 		return;
 	}
 
-	// 2. Create Stroke Mask
-	if (filter->stroke_position == STROKE_POSITION_OUTER || filter->stroke_position == STROKE_POSITION_OUTER_CONTOUR) {
-		render_jf_outer_threshold(filter);
-		bool contour = filter->stroke_position == STROKE_POSITION_OUTER_CONTOUR;
-		float outerExtent = contour ? fmaxf((float)filter->width, (float)filter->height) : filter->stroke_offset + filter->stroke_size;
-		render_jf_passes_outer(filter, outerExtent);
-	}
-	else {
-		render_jf_inner_threshold(filter);
-		bool contour = filter->stroke_position == STROKE_POSITION_INNER_CONTOUR;
-		float innerExtent = contour ? fmaxf((float)filter->width, (float)filter->height) : filter->stroke_offset + filter->stroke_size;
-		render_jf_passes_inner(filter, innerExtent);
-	}
-	
+	// 2. Find the nearest edge of the source for every pixel. Contours can
+	//    extend across the whole source; strokes only out to their extent.
+	render_jf_seed(filter);
+	const bool contour = filter->stroke_position == STROKE_POSITION_OUTER_CONTOUR ||
+			     filter->stroke_position == STROKE_POSITION_INNER_CONTOUR;
+	const float extent = contour ? fmaxf((float)filter->width, (float)filter->height)
+				     : filter->stroke_offset + filter->stroke_size;
+	render_jf_passes(filter, extent);
+
 	render_jf_distance(filter);
 
 	// 3. Draw result (filter->output_texrender) to source
@@ -512,10 +429,7 @@ static enum gs_color_space stroke_source_get_color_space(void* data, size_t coun
 		GS_CS_709_EXTENDED,
 	};
 
-	obs_source_t* input_source = filter->source_input_source
-		? obs_weak_source_get_source(
-			filter->source_input_source)
-		: NULL;
+	obs_source_t* input_source = source_ref_get(&filter->input_ref);
 
 	const enum gs_color_space source_space = input_source ? obs_source_get_color_space(
 		input_source, OBS_COUNTOF(potential_spaces), potential_spaces) : GS_CS_SRGB;
@@ -530,15 +444,11 @@ static enum gs_color_space stroke_source_get_color_space(void* data, size_t coun
 
 static void stroke_filter_video_tick(void *data, float seconds)
 {
-	UNUSED_PARAMETER(seconds);
 	stroke_filter_data_t *filter = data;
 
-	if (filter->has_fill_source && filter->fill_source_source == NULL) {
-		load_fill_source(filter);
-	}
-
-	if (filter->is_source && filter->has_source && filter->source_input_source == NULL) {
-		load_source(filter);
+	source_ref_tick(&filter->fill_ref, seconds);
+	if (filter->is_source) {
+		source_ref_tick(&filter->input_ref, seconds);
 	}
 
 	uint32_t base_width = 0;
@@ -553,9 +463,7 @@ static void stroke_filter_video_tick(void *data, float seconds)
 		filter->source_width = base_width;
 		filter->source_height = base_height;
 	} else {
-		obs_source_t *input = filter->source_input_source
-			? obs_weak_source_get_source(filter->source_input_source)
-			: NULL;
+		obs_source_t *input = source_ref_get(&filter->input_ref);
 		if (input) {
 			base_width = obs_source_get_width(input);
 			base_height = obs_source_get_height(input);

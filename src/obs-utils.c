@@ -45,6 +45,10 @@ void set_blending_parameters()
 
 bool add_source_to_list(void *data, obs_source_t *source)
 {
+	// Audio-only sources (microphones, etc.) have nothing to draw.
+	if ((obs_source_get_output_flags(source) & OBS_SOURCE_VIDEO) == 0) {
+		return true;
+	}
 	obs_property_t *p = data;
 	const char *name = obs_source_get_name(source);
 	size_t count = obs_property_list_item_count(p);
@@ -178,4 +182,141 @@ void texrender_set_texture(gs_texture_t *source, gs_texrender_t *dest)
 		gs_texrender_end(dest);
 	}
 	gs_blend_state_pop();
+}
+
+void source_ref_init(struct source_ref *ref)
+{
+	memset(ref, 0, sizeof(*ref));
+	pthread_mutex_init_value(&ref->mutex);
+	pthread_mutex_init(&ref->mutex, NULL);
+	dstr_init_copy(&ref->name, "");
+	dstr_init_copy(&ref->resolved_name, "");
+}
+
+void source_ref_free(struct source_ref *ref)
+{
+	obs_weak_source_release(ref->weak);
+	ref->weak = NULL;
+	dstr_free(&ref->name);
+	dstr_free(&ref->resolved_name);
+	pthread_mutex_destroy(&ref->mutex);
+}
+
+void source_ref_set_name(struct source_ref *ref, const char *name)
+{
+	if (!name) {
+		name = "";
+	}
+	pthread_mutex_lock(&ref->mutex);
+	// An empty dstr has a NULL array, which dstr_cmp() doesn't handle.
+	const char *current = ref->name.array ? ref->name.array : "";
+	if (strcmp(current, name) != 0) {
+		dstr_copy(&ref->name, name);
+		ref->name_changed = true;
+	}
+	pthread_mutex_unlock(&ref->mutex);
+}
+
+// How often to look again for a named source that doesn't exist (yet), e.g.
+// while a scene collection is still loading, or after it was deleted.
+#define SOURCE_REF_RETRY_SECONDS 0.5f
+
+void source_ref_tick(struct source_ref *ref, float seconds)
+{
+	bool changed = false;
+	pthread_mutex_lock(&ref->mutex);
+	if (ref->name_changed) {
+		dstr_copy_dstr(&ref->resolved_name, &ref->name);
+		ref->name_changed = false;
+		changed = true;
+	}
+	pthread_mutex_unlock(&ref->mutex);
+
+	// Drop the reference if the name changed or the source was removed, so
+	// it is looked up again (a source can be re-created with the same name).
+	if (ref->weak && (changed || obs_weak_source_expired(ref->weak))) {
+		obs_weak_source_release(ref->weak);
+		ref->weak = NULL;
+	}
+	if (changed) {
+		ref->retry_timer = 0.0f;
+	}
+
+	if (ref->weak || dstr_is_empty(&ref->resolved_name)) {
+		return;
+	}
+	ref->retry_timer -= seconds;
+	if (ref->retry_timer > 0.0f) {
+		return;
+	}
+	ref->retry_timer = SOURCE_REF_RETRY_SECONDS;
+
+	obs_source_t *source =
+		obs_get_source_by_name(ref->resolved_name.array);
+	if (source) {
+		ref->weak = obs_source_get_weak_source(source);
+		obs_source_release(source);
+	}
+}
+
+obs_source_t *source_ref_get(struct source_ref *ref)
+{
+	return ref->weak ? obs_weak_source_get_source(ref->weak) : NULL;
+}
+
+bool source_ref_has_name(struct source_ref *ref)
+{
+	return !dstr_is_empty(&ref->resolved_name);
+}
+
+gs_texture_t *render_source_to_texture(obs_source_t *source,
+				       gs_texrender_t **texrender)
+{
+	const enum gs_color_space preferred_spaces[] = {
+		GS_CS_SRGB,
+		GS_CS_SRGB_16F,
+		GS_CS_709_EXTENDED,
+	};
+	const enum gs_color_space space = obs_source_get_color_space(
+		source, OBS_COUNTOF(preferred_spaces), preferred_spaces);
+	const enum gs_color_format format = gs_get_format_from_space(space);
+
+	const uint32_t width = obs_source_get_width(source);
+	const uint32_t height = obs_source_get_height(source);
+	if (!width || !height) {
+		return NULL;
+	}
+
+	*texrender = create_or_reset_texrender_format(*texrender, format);
+
+	gs_blend_state_push();
+	gs_blend_function(GS_BLEND_ONE, GS_BLEND_ZERO);
+	if (gs_texrender_begin_with_color_space(*texrender, width, height,
+						space)) {
+		struct vec4 clear_color;
+		vec4_zero(&clear_color);
+		gs_clear(GS_CLEAR_COLOR, &clear_color, 0.0f, 0);
+		gs_ortho(0.0f, (float)width, 0.0f, (float)height, -100.0f,
+			 100.0f);
+		obs_source_video_render(source);
+		gs_texrender_end(*texrender);
+	}
+	gs_blend_state_pop();
+
+	return gs_texrender_get_texture(*texrender);
+}
+
+bool is_self_reference(obs_source_t *context, obs_source_t *source)
+{
+	if (!source) {
+		return false;
+	}
+	if (source == context) {
+		return true;
+	}
+	// For a filter: its parent source, which renders this filter.
+	if (obs_source_get_type(context) == OBS_SOURCE_TYPE_FILTER) {
+		return source == obs_filter_get_parent(context);
+	}
+	return false;
 }

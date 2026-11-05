@@ -3,6 +3,7 @@
 #include <obs-module.h>
 #include "defines.h"
 #include <util/dstr.h>
+#include "obs-utils.h"
 
 #define DEFAULT_COLOR 4294967295
 
@@ -34,10 +35,12 @@ typedef struct stroke_filter_data stroke_filter_data_t;
 struct stroke_filter_data {
 	obs_source_t *context;
 
-	obs_weak_source_t *source_input_source;
-
-	struct dstr fill_source_name;
-	struct dstr source_name;
+	// The source to stroke (source version only), and the fill source.
+	struct source_ref input_ref;
+	struct source_ref fill_ref;
+	// Cached render targets for the two sources above.
+	gs_texrender_t *source_texrender;
+	gs_texrender_t *fill_texrender;
 
 	bool is_filter;
 	bool is_source;
@@ -51,12 +54,11 @@ struct stroke_filter_data {
 	bool output_rendered;
 	gs_texrender_t* output_texrender;
 	// Frame Buffers
+	// Jump flood ping-pong buffers (RG32F nearest edge point per pixel).
 	gs_texrender_t* buffer_a;
 	gs_texrender_t* buffer_b;
-	gs_texrender_t* buffer_outer_threshold;
-	gs_texrender_t* buffer_inner_threshold;
-	gs_texrender_t* buffer_outer_distance_field;
-	gs_texrender_t* buffer_inner_distance_field;
+	// The finished distance field: one of the two buffers above, not owned.
+	gs_texrender_t* distance_field;
 
 	bool input_texture_generated;
 	bool rendering;
@@ -100,10 +102,6 @@ struct stroke_filter_data {
 	struct vec4 stroke_color;
 
 	enum stroke_fill_type fill_type;
-	obs_weak_source_t *fill_source_source;
-	bool has_fill_source;
-
-	bool has_source;
 
 	enum stroke_position stroke_position;
 
@@ -123,8 +121,7 @@ struct stroke_filter_data {
 	gs_eparam_t* param_jump_flood_contour_falloff_start;
 	gs_eparam_t* param_jump_flood_contour_falloff_end;
 	gs_eparam_t* param_jump_flood_contour_spacing_power;
-	gs_eparam_t* param_inner_distance_field;
-	gs_eparam_t* param_outer_distance_field;
+	gs_eparam_t* param_distance_field;
 	gs_eparam_t* param_infill;
 
 	gs_eparam_t* param_mul_val;

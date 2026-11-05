@@ -27,10 +27,8 @@ void load_jump_flood_sdf_effect(stroke_filter_data_t* filter)
 				filter->param_jump_flood_stroke_extent = param;
 			} else if (strcmp(info.name, "overlay") == 0) {
 				filter->param_jump_flood_overlay = param;
-			} else if (strcmp(info.name, "inner_distance_field") == 0){
-				filter->param_inner_distance_field = param;
-			} else if (strcmp(info.name, "outer_distance_field") == 0){
-				filter->param_outer_distance_field = param;
+			} else if (strcmp(info.name, "distance_field") == 0) {
+				filter->param_distance_field = param;
 			} else if (strcmp(info.name, "stroke_fill_color") == 0) {
 				filter->param_jump_flood_stroke_color = param;
 			} else if (strcmp(info.name, "stroke_fill_source") == 0) {
@@ -73,15 +71,11 @@ void render_padded_input(stroke_filter_data_t* data)
 		return;
 	}
 	if (data->is_source) {
-		obs_source_t* input_source = data->source_input_source
-			? obs_weak_source_get_source(
-				data->source_input_source)
-			: NULL;
+		data->input_texture_generated = false;
+		obs_source_t *input_source = source_ref_get(&data->input_ref);
 		if (!input_source) {
-			data->input_texture_generated = false;
 			return;
 		}
-
 
 		const enum gs_color_space preferred_spaces[] = {
 			GS_CS_SRGB,
@@ -91,32 +85,18 @@ void render_padded_input(stroke_filter_data_t* data)
 		const enum gs_color_space space = obs_source_get_color_space(
 			input_source, OBS_COUNTOF(preferred_spaces),
 			preferred_spaces);
-		const enum gs_color_format format =
-			gs_get_format_from_space(space);
 
-		// Set up a tex renderer for source
-		gs_texrender_t* source_render = gs_texrender_create(format, GS_ZS_NONE);
 		uint32_t source_width = obs_source_get_width(input_source);
 		uint32_t source_height = obs_source_get_height(input_source);
+		gs_texture_t *texture = render_source_to_texture(
+			input_source, &data->source_texrender);
+		obs_source_release(input_source);
+		// No size yet (e.g. still loading): nothing to stroke.
+		if (!texture || !source_width || !source_height) {
+			return;
+		}
 		data->source_width = source_width;
 		data->source_height = source_height;
-		gs_blend_state_push();
-		gs_blend_function(GS_BLEND_ONE, GS_BLEND_ZERO);
-		if (gs_texrender_begin_with_color_space(
-			source_render, source_width, source_height, space)) {
-			const float w = (float)source_width;
-			const float h = (float)source_height;
-			struct vec4 clear_color;
-
-			vec4_zero(&clear_color);
-			gs_clear(GS_CLEAR_COLOR, &clear_color, 0.0f, 0);
-			gs_ortho(0.0f, w, 0.0f, h, -100.0f, 100.0f);
-			obs_source_video_render(input_source);
-			gs_texrender_end(source_render);
-		}
-		gs_blend_state_pop();
-		obs_source_release(input_source);
-		gs_texture_t* texture = gs_texrender_get_texture(source_render);
 
 		// Set up our input_texrender to catch the output texture.
 		data->input_texrender =
@@ -164,7 +144,6 @@ void render_padded_input(stroke_filter_data_t* data)
 			gs_blend_state_pop();
 			data->input_texture_generated = true;
 		}
-		gs_texrender_destroy(source_render);
 	} else {
 		obs_source_t* input_source = data->context;
 
@@ -369,149 +348,20 @@ void render_cropped_output(stroke_filter_data_t* data)
 	}
 }
 
-void render_jf_passes_outer(stroke_filter_data_t* data, float maxExtent)
+// Seeds the jump flood with the sub-pixel edge points of the source's alpha
+// contour (see drawSeedImage), into buffer_a.
+void render_jf_seed(stroke_filter_data_t *data)
 {
-	gs_effect_t* effect = data->effect_jump_flood_sdf;
-
-	// Swap texrender between buffer a and ..
-	gs_texrender_t* tmp = data->buffer_outer_threshold;
-	data->buffer_outer_threshold = data->buffer_a;
-	data->buffer_a = tmp;
-
-	if (!effect) {
-		return;
-	}
-	int iExtent = (int)maxExtent + 1;
-
-	int maxPass = 1;
-	while (maxPass < iExtent) {
-		maxPass *= 2;
-	}
-	int pass = maxPass;
-
-	while (pass > 0) {
-		gs_texture_t* input_texture = gs_texrender_get_texture(data->buffer_a);
-		if (!input_texture) {
-			return;
-		}
-
-		data->buffer_b = create_or_reset_texrender_high(data->buffer_b);
-
-		gs_eparam_t* image = gs_effect_get_param_by_name(effect, "image");
-		gs_effect_set_texture(image, input_texture);
-
-		if (data->param_jump_flood_offset) {
-			float fPass = (float)pass;
-			gs_effect_set_float(data->param_jump_flood_offset, fPass);
-		}
-
-		if (data->param_stroke_uv_size) {
-			struct vec2 uv_size;
-			uv_size.x = (float)data->width;
-			uv_size.y = (float)data->height;
-			gs_effect_set_vec2(data->param_stroke_uv_size, &uv_size);
-		}
-
-		set_blending_parameters();
-
-		if (gs_texrender_begin(data->buffer_b, data->width, data->height)) {
-			gs_ortho(0.0f, (float)data->width, 0.0f, (float)data->height,
-				-100.0f, 100.0f);
-			while (gs_effect_loop(effect, "DrawJumpFloodStep"))
-				gs_draw_sprite(input_texture, 0, data->width,
-					data->height);
-			gs_texrender_end(data->buffer_b);
-		}
-		gs_blend_state_pop();
-
-		tmp = data->buffer_a;
-		data->buffer_a = data->buffer_b;
-		data->buffer_b = tmp;
-		pass /= 2;
-	}
-
-	tmp = data->buffer_a;
-	data->buffer_a = data->buffer_outer_distance_field;
-	data->buffer_outer_distance_field = tmp;
-}
-
-void render_jf_passes_inner(stroke_filter_data_t* data, float maxExtent)
-{
-	gs_effect_t* effect = data->effect_jump_flood_sdf;
-
-
-	if (!effect) {
-		return;
-	}
-
-	gs_texrender_t* tmp = data->buffer_inner_threshold;
-	data->buffer_inner_threshold = data->buffer_a;
-	data->buffer_a = tmp;
-
-	int iExtent = (int)maxExtent + 1;
-
-	int maxPass = 1;
-	while (maxPass < iExtent) {
-		maxPass *= 2;
-	}
-	int pass = maxPass;
-
-	while (pass > 0) {
-		gs_texture_t* input_texture = gs_texrender_get_texture(data->buffer_a);
-		if (!input_texture) {
-			return;
-		}
-
-		data->buffer_b = create_or_reset_texrender_high(data->buffer_b);
-
-		gs_eparam_t* image = gs_effect_get_param_by_name(effect, "image");
-		gs_effect_set_texture(image, input_texture);
-
-		if (data->param_jump_flood_offset) {
-			float fPass = (float)pass;
-			gs_effect_set_float(data->param_jump_flood_offset, fPass);
-		}
-
-		if (data->param_stroke_uv_size) {
-			struct vec2 uv_size;
-			uv_size.x = (float)data->width;
-			uv_size.y = (float)data->height;
-			gs_effect_set_vec2(data->param_stroke_uv_size, &uv_size);
-		}
-
-		set_blending_parameters();
-
-		if (gs_texrender_begin(data->buffer_b, data->width, data->height)) {
-			gs_ortho(0.0f, (float)data->width, 0.0f, (float)data->height,
-				-100.0f, 100.0f);
-			while (gs_effect_loop(effect, "DrawJumpFloodStep"))
-				gs_draw_sprite(input_texture, 0, data->width,
-					data->height);
-			gs_texrender_end(data->buffer_b);
-		}
-		gs_blend_state_pop();
-
-		tmp = data->buffer_a;
-		data->buffer_a = data->buffer_b;
-		data->buffer_b = tmp;
-		pass /= 2;
-	}
-
-	tmp = data->buffer_a;
-	data->buffer_a = data->buffer_inner_distance_field;
-	data->buffer_inner_distance_field = tmp;
-}
-
-void render_jf_outer_threshold(stroke_filter_data_t* data)
-{
-	gs_effect_t* effect = data->effect_jump_flood_sdf;
-	gs_texture_t *input_texture = gs_texrender_get_texture(data->input_texrender);
+	gs_effect_t *effect = data->effect_jump_flood_sdf;
+	gs_texture_t *input_texture =
+		gs_texrender_get_texture(data->input_texrender);
+	data->distance_field = NULL;
 
 	if (!effect || !input_texture) {
 		return;
 	}
 
-	data->buffer_outer_threshold = create_or_reset_texrender_high(data->buffer_outer_threshold);
+	data->buffer_a = create_or_reset_texrender_high(data->buffer_a);
 
 	gs_eparam_t *image = gs_effect_get_param_by_name(effect, "image");
 	gs_effect_set_texture(image, input_texture);
@@ -520,68 +370,74 @@ void render_jf_outer_threshold(stroke_filter_data_t* data)
 		gs_effect_set_float(data->param_jump_flood_threshold,
 				    data->jump_flood_threshold);
 	}
-
-	if (data->param_stroke_uv_size) {
-		struct vec2 uv_size;
-		uv_size.x = (float)data->width;
-		uv_size.y = (float)data->height;
-		gs_effect_set_vec2(data->param_stroke_uv_size, &uv_size);
-	}
+	set_uv_size(data);
 
 	set_blending_parameters();
-
-	const char* technique = "DrawThreshold";
-
-	if (gs_texrender_begin(data->buffer_outer_threshold, data->width, data->height)) {
+	if (gs_texrender_begin(data->buffer_a, data->width, data->height)) {
 		gs_ortho(0.0f, (float)data->width, 0.0f, (float)data->height,
 			 -100.0f, 100.0f);
-		while (gs_effect_loop(effect, technique))
+		while (gs_effect_loop(effect, "DrawThreshold"))
 			gs_draw_sprite(input_texture, 0, data->width,
 				       data->height);
-		gs_texrender_end(data->buffer_outer_threshold);
+		gs_texrender_end(data->buffer_a);
 	}
 	gs_blend_state_pop();
 }
 
-void render_jf_inner_threshold(stroke_filter_data_t* data)
+// Runs the jump flood passes, ping-ponging between buffer_a and buffer_b,
+// far enough to find the nearest edge for every pixel within max_extent.
+// Leaves data->distance_field pointing at whichever buffer holds the result.
+void render_jf_passes(stroke_filter_data_t *data, float max_extent)
 {
-	gs_effect_t* effect = data->effect_jump_flood_sdf;
-	gs_texture_t* input_texture = gs_texrender_get_texture(data->input_texrender);
-
-	if (!effect || !input_texture) {
+	gs_effect_t *effect = data->effect_jump_flood_sdf;
+	if (!effect || !data->buffer_a) {
 		return;
 	}
 
-	data->buffer_inner_threshold = create_or_reset_texrender_high(data->buffer_inner_threshold);
-
-	gs_eparam_t* image = gs_effect_get_param_by_name(effect, "image");
-	gs_effect_set_texture(image, input_texture);
-
-	if (data->param_jump_flood_threshold) {
-		gs_effect_set_float(data->param_jump_flood_threshold,
-			data->jump_flood_threshold);
+	int extent = (int)max_extent + 1;
+	int pass = 1;
+	while (pass < extent) {
+		pass *= 2;
 	}
 
-	if (data->param_stroke_uv_size) {
-		struct vec2 uv_size;
-		uv_size.x = (float)data->width;
-		uv_size.y = (float)data->height;
-		gs_effect_set_vec2(data->param_stroke_uv_size, &uv_size);
-	}
-
+	set_uv_size(data);
 	set_blending_parameters();
 
-	const char* technique = "DrawThresholdInner";
+	for (; pass > 0; pass /= 2) {
+		gs_texture_t *input_texture =
+			gs_texrender_get_texture(data->buffer_a);
+		if (!input_texture) {
+			break;
+		}
 
-	if (gs_texrender_begin(data->buffer_inner_threshold, data->width, data->height)) {
-		gs_ortho(0.0f, (float)data->width, 0.0f, (float)data->height,
-			-100.0f, 100.0f);
-		while (gs_effect_loop(effect, technique))
-			gs_draw_sprite(input_texture, 0, data->width,
-				data->height);
-		gs_texrender_end(data->buffer_inner_threshold);
+		data->buffer_b = create_or_reset_texrender_high(data->buffer_b);
+
+		gs_eparam_t *image = gs_effect_get_param_by_name(effect, "image");
+		gs_effect_set_texture(image, input_texture);
+		if (data->param_jump_flood_offset) {
+			gs_effect_set_float(data->param_jump_flood_offset,
+					    (float)pass);
+		}
+		// Parameters are cleared after every technique.
+		set_uv_size(data);
+
+		if (gs_texrender_begin(data->buffer_b, data->width,
+				       data->height)) {
+			gs_ortho(0.0f, (float)data->width, 0.0f,
+				 (float)data->height, -100.0f, 100.0f);
+			while (gs_effect_loop(effect, "DrawJumpFloodStep"))
+				gs_draw_sprite(input_texture, 0, data->width,
+					       data->height);
+			gs_texrender_end(data->buffer_b);
+		}
+
+		gs_texrender_t *tmp = data->buffer_a;
+		data->buffer_a = data->buffer_b;
+		data->buffer_b = tmp;
 	}
 	gs_blend_state_pop();
+
+	data->distance_field = data->buffer_a;
 }
 
 void render_jf_distance(stroke_filter_data_t* data)
@@ -590,12 +446,14 @@ void render_jf_distance(stroke_filter_data_t* data)
 
 	gs_texture_t* overlay_texture = gs_texrender_get_texture(data->input_texrender);
 
-	gs_texture_t* odf_texture = gs_texrender_get_texture(data->buffer_outer_distance_field);
-	gs_texture_t* idf_texture = gs_texrender_get_texture(data->buffer_inner_distance_field);
+	gs_texture_t *field_texture =
+		data->distance_field
+			? gs_texrender_get_texture(data->distance_field)
+			: NULL;
 
 	bool contours = data->stroke_position == STROKE_POSITION_INNER_CONTOUR || data->stroke_position == STROKE_POSITION_OUTER_CONTOUR;
 
-	if (!effect || !overlay_texture || (!idf_texture && !odf_texture)) {
+	if (!effect || !overlay_texture || !field_texture) {
 		return;
 	}
 
@@ -604,12 +462,8 @@ void render_jf_distance(stroke_filter_data_t* data)
 	data->output_texrender = create_or_reset_texrender_format(
 		data->output_texrender, GS_RGBA16F);
 
-	if (odf_texture && data->param_outer_distance_field) {
-		gs_effect_set_texture(data->param_outer_distance_field, odf_texture);
-	}
-
-	if (idf_texture && data->param_inner_distance_field) {
-		gs_effect_set_texture(data->param_inner_distance_field, idf_texture);
+	if (data->param_distance_field) {
+		gs_effect_set_texture(data->param_distance_field, field_texture);
 	}
 
 	if (data->param_jump_flood_overlay) {
@@ -656,58 +510,30 @@ void render_jf_distance(stroke_filter_data_t* data)
 	}
 
 
-	bool source_available = (data->fill_type == STROKE_FILL_TYPE_SOURCE) &&
-		data->fill_source_source;
-
-	gs_texrender_t* source_render = NULL;
-	if (data->fill_type == STROKE_FILL_TYPE_SOURCE && source_available) {
-		obs_source_t* source =
-			data->fill_source_source
-			? obs_weak_source_get_source(
-				data->fill_source_source)
-			: NULL;
-		if (!source) {
-			return;
+	// Render the fill source. If it is missing (not found, removed or no
+	// size), fall back to a transparent color fill rather than skipping the
+	// frame.
+	gs_texture_t *fill_texture = NULL;
+	if (data->fill_type == STROKE_FILL_TYPE_SOURCE) {
+		obs_source_t *fill_source = source_ref_get(&data->fill_ref);
+		// Rendering our own source here would recurse back into this
+		// filter (which then fails to draw), so treat it as no source.
+		if (is_self_reference(data->context, fill_source)) {
+			obs_source_release(fill_source);
+			fill_source = NULL;
 		}
-
-		const enum gs_color_space preferred_spaces[] = {
-			GS_CS_SRGB,
-			GS_CS_SRGB_16F,
-			GS_CS_709_EXTENDED,
-		};
-		const enum gs_color_space space = obs_source_get_color_space(
-			source, OBS_COUNTOF(preferred_spaces),
-			preferred_spaces);
-		const enum gs_color_format format =
-			gs_get_format_from_space(space);
-
-		// Set up a tex renderer for source
-		source_render = gs_texrender_create(format, GS_ZS_NONE);
-		uint32_t base_width = obs_source_get_width(source);
-		uint32_t base_height = obs_source_get_height(source);
-		gs_blend_state_push();
-		gs_blend_function(GS_BLEND_ONE, GS_BLEND_ZERO);
-		if (gs_texrender_begin_with_color_space(
-			source_render, base_width, base_height, space)) {
-			const float w = (float)base_width;
-			const float h = (float)base_height;
-			struct vec4 clear_color;
-
-			vec4_zero(&clear_color);
-			gs_clear(GS_CLEAR_COLOR, &clear_color, 0.0f, 0);
-			gs_ortho(0.0f, w, 0.0f, h, -100.0f, 100.0f);
-
-			obs_source_video_render(source);
-			gs_texrender_end(source_render);
+		if (fill_source) {
+			fill_texture = render_source_to_texture(
+				fill_source, &data->fill_texrender);
+			obs_source_release(fill_source);
 		}
-		gs_blend_state_pop();
-		obs_source_release(source);
-		gs_texture_t* source_texture =
-			gs_texrender_get_texture(source_render);
+	}
+	const bool source_available = fill_texture != NULL;
+
+	if (source_available) {
 		if (data->param_jump_flood_fill_source) {
-			gs_effect_set_texture(
-				data->param_jump_flood_fill_source,
-				source_texture);
+			gs_effect_set_texture(data->param_jump_flood_fill_source,
+					      fill_texture);
 		}
 	} else if (data->fill_type == STROKE_FILL_TYPE_SOURCE && !source_available) {
 		if (data->param_jump_flood_stroke_color) {
@@ -748,13 +574,9 @@ void render_jf_distance(stroke_filter_data_t* data)
 		gs_ortho(0.0f, (float)data->width, 0.0f, (float)data->height,
 			-100.0f, 100.0f);
 		while (gs_effect_loop(effect, shader_id))
-			gs_draw_sprite(odf_texture, 0, data->width,
+			gs_draw_sprite(field_texture, 0, data->width,
 				data->height);
 		gs_texrender_end(data->output_texrender);
 	}
 	gs_blend_state_pop();
-
-	if (source_render) {
-		gs_texrender_destroy(source_render);
-	}
 }

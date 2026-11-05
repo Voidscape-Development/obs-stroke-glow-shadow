@@ -51,13 +51,9 @@ void glow_render_padded_input(glow_filter_data_t *data)
 	}
 
 	if (data->is_source) { // this is for the source version.
-		obs_source_t *input_source =
-			data->source_input_source
-				? obs_weak_source_get_source(
-					  data->source_input_source)
-				: NULL;
+		data->input_texture_generated = false;
+		obs_source_t *input_source = source_ref_get(&data->input_ref);
 		if (!input_source) {
-			data->input_texture_generated = false;
 			return;
 		}
 
@@ -69,32 +65,16 @@ void glow_render_padded_input(glow_filter_data_t *data)
 		const enum gs_color_space space = obs_source_get_color_space(
 			input_source, OBS_COUNTOF(preferred_spaces),
 			preferred_spaces);
-		const enum gs_color_format format =
-			gs_get_format_from_space(space);
 
-		// Set up a tex renderer for source
-		gs_texrender_t *source_render =
-			gs_texrender_create(format, GS_ZS_NONE);
 		uint32_t source_width = obs_source_get_width(input_source);
 		uint32_t source_height = obs_source_get_height(input_source);
-		gs_blend_state_push();
-		gs_blend_function(GS_BLEND_ONE, GS_BLEND_ZERO);
-		if (gs_texrender_begin_with_color_space(source_render,
-							source_width,
-							source_height, space)) {
-			const float w = (float)source_width;
-			const float h = (float)source_height;
-			struct vec4 clear_color;
-
-			vec4_zero(&clear_color);
-			gs_clear(GS_CLEAR_COLOR, &clear_color, 0.0f, 0);
-			gs_ortho(0.0f, w, 0.0f, h, -100.0f, 100.0f);
-			obs_source_video_render(input_source);
-			gs_texrender_end(source_render);
-		}
-		gs_blend_state_pop();
+		gs_texture_t *texture = render_source_to_texture(
+			input_source, &data->source_texrender);
 		obs_source_release(input_source);
-		gs_texture_t *texture = gs_texrender_get_texture(source_render);
+		// No size yet (e.g. still loading): nothing to draw.
+		if (!texture || !source_width || !source_height) {
+			return;
+		}
 
 		// Set up our input_texrender to catch the output texture.
 		data->input_texrender =
@@ -142,7 +122,6 @@ void glow_render_padded_input(glow_filter_data_t *data)
 			gs_blend_state_pop();
 			data->input_texture_generated = true;
 		}
-		gs_texrender_destroy(source_render);
 	} else {
 		obs_source_t *input_source = data->context;
 
@@ -428,56 +407,30 @@ void render_glow_filter(glow_filter_data_t *data)
 		gs_effect_set_float(data->param_threshold, data->threshold);
 	}
 
-	bool source_available = (data->fill_type == GLOW_FILL_TYPE_SOURCE) &&
-				data->fill_source_source;
+	// Render the fill source. If it is missing (not found, removed or no
+	// size), fall back to a transparent color fill rather than skipping the
+	// frame.
+	gs_texture_t *fill_texture = NULL;
+	if (data->fill_type == GLOW_FILL_TYPE_SOURCE) {
+		obs_source_t *fill_source = source_ref_get(&data->fill_ref);
+		// Rendering our own source here would recurse back into this
+		// filter (which then fails to draw), so treat it as no source.
+		if (is_self_reference(data->context, fill_source)) {
+			obs_source_release(fill_source);
+			fill_source = NULL;
+		}
+		if (fill_source) {
+			fill_texture = render_source_to_texture(
+				fill_source, &data->fill_texrender);
+			obs_source_release(fill_source);
+		}
+	}
+	const bool source_available = fill_texture != NULL;
 
-	gs_texrender_t *source_render = NULL;
 	if (source_available) {
-		obs_source_t *source =
-			data->fill_source_source
-				? obs_weak_source_get_source(
-					  data->fill_source_source)
-				: NULL;
-		if (!source) {
-			return;
-		}
-
-		const enum gs_color_space preferred_spaces[] = {
-			GS_CS_SRGB,
-			GS_CS_SRGB_16F,
-			GS_CS_709_EXTENDED,
-		};
-		const enum gs_color_space space = obs_source_get_color_space(
-			source, OBS_COUNTOF(preferred_spaces),
-			preferred_spaces);
-		const enum gs_color_format format =
-			gs_get_format_from_space(space);
-
-		// Set up a tex renderer for source
-		source_render = gs_texrender_create(format, GS_ZS_NONE);
-		uint32_t base_width = obs_source_get_width(source);
-		uint32_t base_height = obs_source_get_height(source);
-		gs_blend_state_push();
-		gs_blend_function(GS_BLEND_ONE, GS_BLEND_ZERO);
-		if (gs_texrender_begin_with_color_space(
-			    source_render, base_width, base_height, space)) {
-			const float w = (float)base_width;
-			const float h = (float)base_height;
-			struct vec4 clear_color;
-
-			vec4_zero(&clear_color);
-			gs_clear(GS_CLEAR_COLOR, &clear_color, 0.0f, 0);
-			gs_ortho(0.0f, w, 0.0f, h, -100.0f, 100.0f);
-			obs_source_video_render(source);
-			gs_texrender_end(source_render);
-		}
-		gs_blend_state_pop();
-		obs_source_release(source);
-		gs_texture_t *source_texture =
-			gs_texrender_get_texture(source_render);
 		if (data->param_glow_fill_source) {
 			gs_effect_set_texture(data->param_glow_fill_source,
-					      source_texture);
+					      fill_texture);
 		}
 	} else if (data->fill_type == GLOW_FILL_TYPE_SOURCE &&
 		   !source_available) {
@@ -502,10 +455,7 @@ void render_glow_filter(glow_filter_data_t *data)
 	bool fill_color =
 		(data->fill_type == GLOW_FILL_TYPE_COLOR) ||
 		(data->fill_type == GLOW_FILL_TYPE_SOURCE && !source_available);
-	const char *fill_type = fill_color ? "Color"
-				: data->fill_type == GLOW_FILL_TYPE_SOURCE
-					? "Source"
-					: "Source";
+	const char *fill_type = fill_color ? "Color" : "Source";
 	const char *position = data->glow_position == GLOW_POSITION_OUTER
 				       ? "FilterOuterGlow"
 				       : "FilterInnerGlow";
@@ -525,8 +475,4 @@ void render_glow_filter(glow_filter_data_t *data)
 	}
 
 	gs_blend_state_pop();
-
-	if (source_render) {
-		gs_texrender_destroy(source_render);
-	}
 }

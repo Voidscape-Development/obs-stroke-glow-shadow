@@ -7,8 +7,8 @@ uniform texture2d image;
 uniform texture2d output_image;
 uniform texture2d overlay;
 uniform texture2d stroke_fill_source;
-uniform texture2d inner_distance_field;
-uniform texture2d outer_distance_field;
+// Nearest edge point for every pixel, from the jump flood.
+uniform texture2d distance_field;
 
 uniform float2 uv_size;
 
@@ -291,15 +291,6 @@ float4 blend_over(float4 a, float4 b)
 }
 
 technique DrawThreshold
-{
-	pass
-	{
-		vertex_shader = mainTransform(v_in);
-		pixel_shader = drawSeedImage(v_in);
-	}
-}
-
-technique DrawThresholdInner
 {
 	pass
 	{
