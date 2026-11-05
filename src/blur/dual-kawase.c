@@ -1,5 +1,20 @@
 #include "dual-kawase.h"
 
+static void load_dual_kawase_down_sample_effect(alpha_blur_data_t *filter);
+static void load_dual_kawase_up_sample_effect(alpha_blur_data_t *filter);
+static void load_dual_kawase_mix_effect(alpha_blur_data_t *filter);
+
+static gs_texture_t *mix_textures(alpha_blur_data_t *data, gs_texture_t *base,
+				  gs_texture_t *residual, float ratio);
+static gs_texture_t *down_sample(alpha_blur_data_t *data,
+				 gs_texture_t *input_texture, int divisor,
+				 float ratio, uint32_t width, uint32_t height,
+				 const char *technique);
+static gs_texture_t *up_sample(alpha_blur_data_t *data,
+			       gs_texture_t *input_texture, int divisor,
+			       float ratio, uint32_t width, uint32_t height,
+			       const char *technique);
+
 void load_effect_dual_kawase(alpha_blur_data_t *filter)
 {
 	load_dual_kawase_down_sample_effect(filter);
@@ -7,9 +22,19 @@ void load_effect_dual_kawase(alpha_blur_data_t *filter)
 	load_dual_kawase_mix_effect(filter);
 }
 
+// Size of a downsampled level. Rounds up and never reaches 0: a zero-sized
+// level fails to render, which left large blurs on small sources (e.g. text)
+// with an empty mask.
+static uint32_t level_size(uint32_t size, int divisor)
+{
+	uint32_t s = (size + (uint32_t)divisor - 1) / (uint32_t)divisor;
+	return s > 0 ? s : 1;
+}
+
 static gs_texture_t *down_sample(alpha_blur_data_t *data,
 				 gs_texture_t *input_texture, int divisor,
-				 float ratio, uint32_t width, uint32_t height)
+				 float ratio, uint32_t width, uint32_t height,
+				 const char *technique)
 {
 	gs_effect_t *effect_down = data->effect_dual_kawase_downsample;
 	// Swap renderers
@@ -19,8 +44,8 @@ static gs_texture_t *down_sample(alpha_blur_data_t *data,
 
 	data->render = create_or_reset_texrender_format(data->render, GS_R16F);
 
-	uint32_t w = width / divisor;
-	uint32_t h = height / divisor;
+	uint32_t w = level_size(width, divisor);
+	uint32_t h = level_size(height, divisor);
 	gs_eparam_t *image = gs_effect_get_param_by_name(effect_down, "image");
 	gs_effect_set_texture(image, input_texture);
 
@@ -34,7 +59,7 @@ static gs_texture_t *down_sample(alpha_blur_data_t *data,
 
 	if (gs_texrender_begin(data->render, w, h)) {
 		gs_ortho(0.0f, (float)w, 0.0f, (float)h, -100.0f, 100.0f);
-		while (gs_effect_loop(effect_down, "Draw"))
+		while (gs_effect_loop(effect_down, technique))
 			gs_draw_sprite(input_texture, 0, w, h);
 		gs_texrender_end(data->render);
 	}
@@ -43,7 +68,8 @@ static gs_texture_t *down_sample(alpha_blur_data_t *data,
 
 static gs_texture_t *up_sample(alpha_blur_data_t *data,
 			       gs_texture_t *input_texture, int divisor,
-			       float ratio, uint32_t width, uint32_t height)
+			       float ratio, uint32_t width, uint32_t height,
+			       const char *technique)
 {
 	gs_effect_t *effect_up = data->effect_dual_kawase_upsample;
 	// Swap renderers
@@ -56,8 +82,8 @@ static gs_texture_t *up_sample(alpha_blur_data_t *data,
 	uint32_t start_w = gs_texture_get_width(input_texture);
 	uint32_t start_h = gs_texture_get_height(input_texture);
 
-	uint32_t w = width / divisor;
-	uint32_t h = height / divisor;
+	uint32_t w = level_size(width, divisor);
+	uint32_t h = level_size(height, divisor);
 	gs_eparam_t *image = gs_effect_get_param_by_name(effect_up, "image");
 	gs_effect_set_texture(image, input_texture);
 
@@ -70,15 +96,15 @@ static gs_texture_t *up_sample(alpha_blur_data_t *data,
 
 	if (gs_texrender_begin(data->render, w, h)) {
 		gs_ortho(0.0f, (float)w, 0.0f, (float)h, -100.0f, 100.0f);
-		while (gs_effect_loop(effect_up, "Draw"))
+		while (gs_effect_loop(effect_up, technique))
 			gs_draw_sprite(input_texture, 0, w, h);
 		gs_texrender_end(data->render);
 	}
 	return gs_texrender_get_texture(data->render);
 }
 
-gs_texture_t *mix_textures(alpha_blur_data_t *data, gs_texture_t *base,
-			   gs_texture_t *residual, float ratio)
+static gs_texture_t *mix_textures(alpha_blur_data_t *data, gs_texture_t *base,
+				  gs_texture_t *residual, float ratio)
 {
 	gs_effect_t *effect = data->effect_dual_kawase_mix;
 	// Swap renderers
@@ -112,11 +138,16 @@ gs_texture_t *mix_textures(alpha_blur_data_t *data, gs_texture_t *base,
 	return gs_texrender_get_texture(data->render);
 }
 
-void dual_kawase_blur(int radius, bool include_border, alpha_blur_data_t *data,
+void dual_kawase_blur(int radius, bool ignore_border, alpha_blur_data_t *data,
 		      gs_texrender_t *input)
 {
-	UNUSED_PARAMETER(include_border);
 	gs_texture_t *texture = gs_texrender_get_texture(input);
+	if (!texture) {
+		return;
+	}
+	// Unless the source border is ignored, treat everything outside the
+	// source as transparent, as the triangular blur does.
+	const char *technique = ignore_border ? "Draw" : "DrawBorder";
 	if (radius <= 1) {
 		data->alpha_blur_output = create_or_reset_texrender_format(
 			data->alpha_blur_output, GS_R16F);
@@ -138,7 +169,8 @@ void dual_kawase_blur(int radius, bool include_border, alpha_blur_data_t *data,
 	int last_pass = 1;
 	// Down Sampling Loop
 	for (int i = 2; i <= radius; i *= 2) {
-		texture = down_sample(data, texture, i, 1.0, width, height);
+		texture = down_sample(data, texture, i, 1.0, width, height,
+				      technique);
 		last_pass = i;
 	}
 	int residual = radius - last_pass;
@@ -148,13 +180,13 @@ void dual_kawase_blur(int radius, bool include_border, alpha_blur_data_t *data,
 
 		// Downsample one more step
 		texture = down_sample(data, texture, next_pass, 1.0, width,
-				      height);
+				      height, technique);
 		// Extract renderer from end of down sampling loop
 		base_render = data->render2;
 		data->render2 = NULL;
 		// Upsample one more step
-		texture =
-			up_sample(data, texture, last_pass, 1.0, width, height);
+		texture = up_sample(data, texture, last_pass, 1.0, width,
+				    height, technique);
 		gs_texture_t *base = gs_texrender_get_texture(base_render);
 		// Mix the end of the downsample loop with additional step.
 		// Use the residual ratio for mixing.
@@ -162,7 +194,8 @@ void dual_kawase_blur(int radius, bool include_border, alpha_blur_data_t *data,
 	}
 	// Upsample Loop
 	for (int i = last_pass / 2; i >= 1; i /= 2) {
-		texture = up_sample(data, texture, i, 1.0, width, height);
+		texture = up_sample(data, texture, i, 1.0, width, height,
+				    technique);
 	}
 
 	gs_blend_state_pop();

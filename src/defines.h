@@ -12,3 +12,5 @@ enum padding_type {
 #define PADDING_NONE_LABEL "StrokeFilter.Padding.None"
 #define PADDING_AUTO_LABEL "StrokeFilter.Padding.Auto"
 #define PADDING_MANUAL_LABEL "StrokeFilter.Padding.Manual"
+#define PADDING_OVERFLOW_LABEL "StrokeFilter.Padding.Overflow"
+#define PADDING_OVERFLOW_DESCRIPTION "StrokeFilter.Padding.Overflow.Description"

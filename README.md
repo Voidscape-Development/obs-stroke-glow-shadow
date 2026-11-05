@@ -49,10 +49,8 @@ The stroke effect draws a line with user-definable stroke size and offset around
 3. **Options**- For an Outer Stroke if using the Stroke Source there is an option for `Infill Zero Offset` which will fill inside of the stroke if the offset is zero.  For an inner stroke, both the filter and source have the option `Ignore Source Border` which will suppress drawing a stroke anywhere the masked content meets the edge of the source (e.g.- if your masked facecam is aligned with the bottom of the source).
 4. **Stroke Size**- Specifies the thickness (in pixels) of the stroke.
 5. **Offset**- Indicates how many pixels from the edge of the mask you want the stroke to be drawn.
-6. **Offset Quality**- If you are providing an offset value, you can choose the offset calculation algorithm. *Fast* is a quick approximation and will result in less accurate (but still visually pleasing) stroke thickness. *More Accurate* uses a two-pass technique (resulting in double the number of texture samples) to provide a more accurate stroke thickess.
-7. **Anti-Alias**- If selected will perform a basic anti-aliasing pass to remove the jagged edges seen on the edges of the stroke.
-8. **Fill Type**- Choose between Color or Source.
-9.  The color or source to be used as fill.
+6. **Fill Type**- Choose between Color or Source.
+7.  The color or source to be used as fill.
 
 ### Glow
 

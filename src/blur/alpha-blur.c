@@ -7,8 +7,6 @@ void alpha_blur_init(alpha_blur_data_t *data)
 		create_or_reset_texrender(data->alpha_blur_pass_1);
 	data->alpha_blur_output =
 		create_or_reset_texrender(data->alpha_blur_output);
-	data->alpha_blur_output_2 =
-		create_or_reset_texrender(data->alpha_blur_output_2);
 	data->param_blur_radius = NULL;
 	data->param_blur_texel_step = NULL;
 
@@ -33,9 +31,6 @@ void alpha_blur_destroy(alpha_blur_data_t *data)
 	}
 	if (data->alpha_blur_output) {
 		gs_texrender_destroy(data->alpha_blur_output);
-	}
-	if (data->alpha_blur_output_2) {
-		gs_texrender_destroy(data->alpha_blur_output_2);
 	}
 	if (data->effect_alpha_blur) {
 		gs_effect_destroy(data->effect_alpha_blur);

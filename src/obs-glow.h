@@ -4,6 +4,7 @@
 #include "blur/alpha-blur.h"
 #include "defines.h"
 #include <util/dstr.h>
+#include "obs-utils.h"
 
 // Default glow color: white in ABGR
 #define DEFAULT_COLOR_GLOW 0xFFFFFFFF
@@ -51,24 +52,25 @@ struct glow_filter_data {
 	obs_source_t *context;
 	alpha_blur_data_t *alpha_blur_data;
 
-	struct dstr fill_source_name;
-	struct dstr source_name;
-
-	obs_weak_source_t *source_input_source;
+	// The source to glow (source version only), and the fill source.
+	struct source_ref input_ref;
+	struct source_ref fill_ref;
+	// Cached render targets for the two sources above.
+	gs_texrender_t *source_texrender;
+	gs_texrender_t *fill_texrender;
 
 	bool is_filter;
 	bool is_source;
 
 	// Effects
 	gs_effect_t *effect_glow;
-	gs_effect_t *effect_output;
 
 	// Render pipeline
 	bool input_rendered;
 	gs_texrender_t *input_texrender;
 	bool output_rendered;
 	gs_texrender_t *output_texrender;
-	gs_texrender_t* alpha_mask_texrender;
+	gs_texrender_t *alpha_mask_texrender;
 	// Frame Buffers
 
 	bool input_texture_generated;
@@ -78,6 +80,8 @@ struct glow_filter_data {
 
 	uint32_t width;
 	uint32_t height;
+	// Color space of the current frame (see filter_working_space).
+	enum gs_color_space working_space;
 	uint32_t source_width;
 	uint32_t source_height;
 
@@ -96,6 +100,12 @@ struct glow_filter_data {
 	uint32_t pad_r;
 
 	uint32_t padding_amount;
+	// Draw the padding outside the source's bounds instead of growing the
+	// source's reported size.
+	bool overflow;
+
+	uint32_t output_width;
+	uint32_t output_height;
 
 	struct vec2 mul_val;
 	struct vec2 add_val;
@@ -103,14 +113,9 @@ struct glow_filter_data {
 	struct vec4 glow_color;
 	struct vec4 glow_color_srgb;
 	enum glow_fill_type fill_type;
-	obs_weak_source_t *fill_source_source;
-	bool has_fill_source;
-
-	bool has_source;
 
 	enum glow_position glow_position;
 
-	gs_eparam_t *param_glow_texel_step;
 	gs_eparam_t *param_glow_image;
 	gs_eparam_t *param_glow_mask;
 	gs_eparam_t *param_glow_fill_source;
@@ -119,10 +124,8 @@ struct glow_filter_data {
 	gs_eparam_t *param_glow_fill_behind;
 	gs_eparam_t *param_offset_texel;
 
-	gs_eparam_t* param_mul_val;
-	gs_eparam_t* param_add_val;
+	gs_eparam_t *param_mul_val;
+	gs_eparam_t *param_add_val;
 
-	gs_eparam_t* param_threshold;
-
-	gs_eparam_t *param_output_image;
+	gs_eparam_t *param_threshold;
 };
