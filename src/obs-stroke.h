@@ -99,6 +99,9 @@ struct stroke_filter_data {
 	uint32_t pad_r;
 
 	uint32_t padding_amount;
+	// Draw the padding outside the source's bounds instead of growing the
+	// source's reported size.
+	bool overflow;
 
 	uint32_t source_width;
 	uint32_t source_height;

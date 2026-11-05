@@ -90,6 +90,13 @@ gs_effect_t *load_shader_effect(gs_effect_t *effect,
 	dstr_cat(&filename, obs_get_module_data_path(obs_current_module()));
 	dstr_cat(&filename, effect_file_path);
 	shader_text = load_shader_from_file(filename.array);
+	if (!shader_text) {
+		blog(LOG_WARNING,
+		     "[obs-stroke-glow-shadow] Unable to read shader file %s",
+		     filename.array);
+		dstr_free(&filename);
+		return NULL;
+	}
 	char *errors = NULL;
 
 	obs_enter_graphics();
@@ -139,8 +146,16 @@ char *load_shader_from_file(const char *file_name)
 			char *abs_include_path =
 				os_get_abs_path_ptr(include_path.array);
 			char *file_contents =
-				load_shader_from_file(abs_include_path);
-			dstr_cat(&shader_file, file_contents);
+				abs_include_path
+					? load_shader_from_file(abs_include_path)
+					: NULL;
+			if (file_contents) {
+				dstr_cat(&shader_file, file_contents);
+			} else {
+				blog(LOG_WARNING,
+				     "[obs-stroke-glow-shadow] Unable to read included shader file %s",
+				     include_path.array);
+			}
 			dstr_cat(&shader_file, "\n");
 			bfree(abs_include_path);
 			bfree(file_contents);

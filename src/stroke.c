@@ -157,6 +157,16 @@ void load_fill_stroke_effect(stroke_filter_data_t *filter)
 	}
 }
 
+static void set_uv_size(stroke_filter_data_t *data)
+{
+	if (data->param_stroke_uv_size) {
+		struct vec2 uv_size;
+		uv_size.x = (float)data->width;
+		uv_size.y = (float)data->height;
+		gs_effect_set_vec2(data->param_stroke_uv_size, &uv_size);
+	}
+}
+
 void render_padded_input(stroke_filter_data_t* data)
 {
 	gs_effect_t* effect = data->effect_jump_flood_sdf;
@@ -247,6 +257,7 @@ void render_padded_input(stroke_filter_data_t* data)
 
 			gs_ortho(0.0f, (float)data->width, 0.0f,
 				(float)data->height, -100.0f, 100.0f);
+			set_uv_size(data);
 			const char* technique = "DrawCropPad";
 			//obs_source_process_filter_tech_end(
 			//	input_source, effect, data->width,
@@ -317,6 +328,7 @@ void render_padded_input(stroke_filter_data_t* data)
 
 			gs_ortho(0.0f, (float)data->width, 0.0f,
 				(float)data->height, -100.0f, 100.0f);
+			set_uv_size(data);
 			const char* technique = "DrawCropPad";
 			obs_source_process_filter_tech_end(
 				input_source, effect, data->width,
@@ -328,18 +340,64 @@ void render_padded_input(stroke_filter_data_t* data)
 	}
 }
 
+// Sets up mul_val/add_val to crop the padding back off for inner strokes
+// (which only pad to treat the source border as an edge), and returns the
+// size of the area to draw. Must not modify data->width/height, as this is
+// also called for repeat renders within the same frame.
+static void set_output_crop(stroke_filter_data_t *data, uint32_t *out_width,
+			    uint32_t *out_height)
+{
+	const uint32_t base_width = data->width;
+	const uint32_t base_height = data->height;
+	const bool inner = data->stroke_position == STROKE_POSITION_INNER ||
+			   data->stroke_position == STROKE_POSITION_INNER_CONTOUR;
+
+	if (inner && base_width > data->pad_l + data->pad_r &&
+	    base_height > data->pad_t + data->pad_b) {
+		*out_width = base_width - data->pad_l - data->pad_r;
+		*out_height = base_height - data->pad_t - data->pad_b;
+
+		data->mul_val.x = (float)*out_width / (float)base_width;
+		data->add_val.x = (float)data->pad_l / (float)base_width;
+		data->mul_val.y = (float)*out_height / (float)base_height;
+		data->add_val.y = (float)data->pad_t / (float)base_height;
+	} else {
+		*out_width = base_width;
+		*out_height = base_height;
+		data->mul_val.x = 1.0f;
+		data->mul_val.y = 1.0f;
+		data->add_val.x = 0.0f;
+		data->add_val.y = 0.0f;
+	}
+
+	if (data->param_mul_val) {
+		gs_effect_set_vec2(data->param_mul_val, &data->mul_val);
+	}
+	if (data->param_add_val) {
+		gs_effect_set_vec2(data->param_add_val, &data->add_val);
+	}
+	set_uv_size(data);
+}
+
 void render_cropped_output(stroke_filter_data_t* data)
 {
 	gs_effect_t* effect = data->effect_jump_flood_sdf;
+	gs_texture_t *texture = data->output_texrender
+		? gs_texrender_get_texture(data->output_texrender)
+		: NULL;
+	if (!effect || !texture) {
+		if (data->is_filter) {
+			obs_source_skip_video_filter(data->context);
+		}
+		return;
+	}
+
+	uint32_t width, height;
+
 	if (data->is_source) {
-		gs_texture_t* texture =
-			gs_texrender_get_texture(data->output_texrender);
 		gs_eparam_t* param =
 			gs_effect_get_param_by_name(effect, "output_image");
 		gs_effect_set_texture(param, texture);
-
-		int base_width = data->width;
-		int base_height = data->height;
 
 		const bool previous = gs_framebuffer_srgb_enabled();
 		if (data->fill_type == STROKE_FILL_TYPE_COLOR) {
@@ -347,52 +405,30 @@ void render_cropped_output(stroke_filter_data_t* data)
 			gs_enable_framebuffer_srgb(linear_srgb);
 		}
 
-		if (data->stroke_position == STROKE_POSITION_INNER || data->stroke_position == STROKE_POSITION_INNER_CONTOUR) {
-			data->width = data->width - data->pad_l - data->pad_r;
-			data->height = data->height - data->pad_t - data->pad_b;
+		set_output_crop(data, &width, &height);
 
-			data->mul_val.x = (float)data->width / (float)base_width;
-			data->add_val.x = (float)data->pad_l / (float)base_width;
-
-			data->mul_val.y = (float)data->height / (float)base_height;
-			data->add_val.y = (float)data->pad_t / (float)base_height;
-		}
-		else {
-			data->mul_val.x = 1.0;
-			data->mul_val.y = 1.0;
-			data->add_val.x = 0.0;
-			data->add_val.y = 0.0;
+		gs_matrix_push();
+		if (data->overflow) {
+			gs_matrix_translate3f(-(float)data->pad_l,
+					      -(float)data->pad_t, 0.0f);
 		}
 
-		// Grab the proper padding/
-		if (data->param_mul_val) {
-			gs_effect_set_vec2(data->param_mul_val, &data->mul_val);
-		}
-		if (data->param_add_val) {
-			gs_effect_set_vec2(data->param_add_val, &data->add_val);
-		}
-
-		//uint32_t width = gs_texture_get_width(texture);
-		//uint32_t height = gs_texture_get_height(texture);
-
-		//while (gs_effect_loop(effect, "DrawOutput")) {
-		//	gs_draw_sprite(texture, 0, data->width, data->height);
-		//}
 		gs_technique_t* tech = gs_effect_get_technique(effect, "DrawOutput");
 		gs_technique_begin(tech);
 		gs_technique_begin_pass(tech, 0);
 
-		gs_draw_sprite(0, 0, data->width, data->height);
+		gs_draw_sprite(0, 0, width, height);
 
 		gs_technique_end_pass(tech);
 		gs_technique_end(tech);
+		gs_matrix_pop();
 
 		gs_enable_framebuffer_srgb(previous);
 	} else {
 		const enum gs_color_space preferred_spaces[] = {
-		GS_CS_SRGB,
-		GS_CS_SRGB_16F,
-		GS_CS_709_EXTENDED,
+			GS_CS_SRGB,
+			GS_CS_SRGB_16F,
+			GS_CS_709_EXTENDED,
 		};
 
 		const enum gs_color_space source_space =
@@ -410,43 +446,31 @@ void render_cropped_output(stroke_filter_data_t* data)
 			return;
 		}
 
-		gs_texture_t* texture =
-			gs_texrender_get_texture(data->output_texrender);
-
 		gs_eparam_t* image = gs_effect_get_param_by_name(effect, "output_image");
 		gs_effect_set_texture(image, texture);
 
-		int base_width = data->width;
-		int base_height = data->height;
-
-		if (data->stroke_position == STROKE_POSITION_INNER || data->stroke_position == STROKE_POSITION_INNER_CONTOUR) {
-			data->width = data->width - data->pad_l - data->pad_r;
-			data->height = data->height - data->pad_t - data->pad_b;
-
-			data->mul_val.x = (float)data->width / (float)base_width;
-			data->add_val.x = (float)data->pad_l / (float)base_width;
-
-			data->mul_val.y = (float)data->height / (float)base_height;
-			data->add_val.y = (float)data->pad_t / (float)base_height;
-		}
-		else {
-			data->mul_val.x = 1.0;
-			data->mul_val.y = 1.0;
-			data->add_val.x = 0.0;
-			data->add_val.y = 0.0;
+		// The input, used to leave untouched pixels undithered. (Effect
+		// parameters are cleared after every technique, so set it again.)
+		gs_texture_t *input_texture =
+			data->input_texrender
+				? gs_texrender_get_texture(data->input_texrender)
+				: NULL;
+		if (data->param_jump_flood_overlay && input_texture) {
+			gs_effect_set_texture(data->param_jump_flood_overlay,
+					      input_texture);
 		}
 
-		// Grab the proper padding/
-		if (data->param_mul_val) {
-			gs_effect_set_vec2(data->param_mul_val, &data->mul_val);
-		}
-		if (data->param_add_val) {
-			gs_effect_set_vec2(data->param_add_val, &data->add_val);
-		}
+		set_output_crop(data, &width, &height);
 
+		gs_matrix_push();
+		if (data->overflow) {
+			gs_matrix_translate3f(-(float)data->pad_l,
+					      -(float)data->pad_t, 0.0f);
+		}
 		const char* technique = "DrawOutput";
 		obs_source_process_filter_tech_end(data->context, effect,
-			data->width, data->height, technique);
+			width, height, technique);
+		gs_matrix_pop();
 	}
 }
 
@@ -691,7 +715,10 @@ void render_jf_distance(stroke_filter_data_t* data)
 
 	// Add logic here to check srgb of source stroke
 	const bool linear_srgb = gs_get_linear_srgb() || data->stroke_color.w < 1.0f;
-	data->output_texrender = create_or_reset_texrender(data->output_texrender);
+	// Float output so contour falloff gradients can be dithered on output
+	// instead of being quantised (banded) here.
+	data->output_texrender = create_or_reset_texrender_format(
+		data->output_texrender, GS_RGBA16F);
 
 	if (odf_texture && data->param_outer_distance_field) {
 		gs_effect_set_texture(data->param_outer_distance_field, odf_texture);
@@ -831,9 +858,7 @@ void render_jf_distance(stroke_filter_data_t* data)
 	const char* innieOutie = data->stroke_position == STROKE_POSITION_OUTER || data->stroke_position == STROKE_POSITION_OUTER_CONTOUR ? "" : "Inner";
 
 	const char* fill_type =
-		data->fill_type == fill_color ? "Color"
-		: data->fill_type == STROKE_FILL_TYPE_SOURCE ? "Source"
-		: "Source";
+		fill_color ? "Color" : "Source";
 
 	char shader_id[100] = "";
 	snprintf(shader_id, sizeof(shader_id), "Draw%s%s%s", render, innieOutie, fill_type);

@@ -73,6 +73,16 @@ float rng(float2 p)
 	return frac(52.9829189 * frac(0.06711056 * p.x + 0.00583715 * p.y));
 }
 
+// Dither noise for the 8-bit output, applied everywhere the glow can create
+// gradients (including inside inner glows and the dense part of outer
+// glows). Kept just under +/-0.5 of an 8-bit step so pixels that are already
+// exactly on an 8-bit level (unmodified source content) round back to the
+// same value.
+float dither_noise(float2 p)
+{
+	return (rng(p) - 0.5) * (0.96 / 255.0);
+}
+
 float4 PSCrop(VertData v_in) : TARGET
 {
 	float4 rgba = image.Sample(padSampler, v_in.uv);
@@ -84,9 +94,8 @@ float4 drawOutput(VertData v_in) : TARGET
 {
 	float4 px = output_image.Sample(textureSampler, v_in.uv);
 	float2 pix = v_in.uv * dither_size;
-	float thresh = 1.0 - smoothstep(0.5, 0.95, px.a);
-	float rgb_noise = (rng(pix) - 0.5) / 255.0 * thresh;
-	float a_noise = (rng(pix + 17.13) - 0.5) / 255.0 * thresh;
+	float rgb_noise = dither_noise(pix);
+	float a_noise = dither_noise(pix + 17.13);
 
 	if (content_linear > 0.5) {
 		float4 enc = srgb_linear_to_nonlinear(px);
@@ -112,7 +121,7 @@ VertData mainTransform(VertData v_in)
 float4 mainImageThresholdMask(VertData v_in) : TARGET
 {
 	float4 color = image.Sample(textureSampler, v_in.uv);
-	return float4(clamp(color.a / threshold, 0.0, 1.0), 0.0, 0.0, 1.0);
+	return float4(clamp(color.a / max(threshold, 0.0001), 0.0, 1.0), 0.0, 0.0, 1.0);
 }
 
 float4 mainImageOuterGlowColor(VertData v_in) : TARGET

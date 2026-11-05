@@ -172,21 +172,13 @@ static void glow_filter_destroy(void *data)
 static uint32_t glow_filter_width(void *data)
 {
 	glow_filter_data_t *filter = data;
-	if (filter->is_source) {
-		return filter->width;
-	}
-	return filter->source_width + filter->pad_l + filter->pad_r;
-	//return filter->width;
+	return filter->output_width;
 }
 
 static uint32_t glow_filter_height(void *data)
 {
 	glow_filter_data_t *filter = data;
-	if (filter->is_source) {
-		return filter->height;
-	}
-	return filter->source_height + filter->pad_t + filter->pad_b;
-	//return filter->height;
+	return filter->output_height;
 }
 
 static void glow_filter_update(void *data, obs_data_t *settings)
@@ -241,9 +233,15 @@ static void glow_filter_update(void *data, obs_data_t *settings)
 		filter->padding_amount = (uint32_t)(filter->glow_size * 3.5 + offset);
 	}
 
+	filter->overflow =
+		obs_data_get_int(settings, "glow_padding") != PADDING_NONE &&
+		obs_data_get_bool(settings, "padding_overflow");
+
 	filter->threshold = filter->glow_position == GLOW_POSITION_OUTER
 		? (float)obs_data_get_double(settings, "threshold_outer")/100.0f
 		: (float)obs_data_get_double(settings, "threshold_inner")/100.0f;
+	// The mask shader divides by the threshold.
+	filter->threshold = fmaxf(filter->threshold, 0.0001f);
 
 	if (filter->glow_position == GLOW_POSITION_OUTER) {
 		filter->pad_b = filter->padding_amount;
@@ -451,7 +449,7 @@ static obs_properties_t *properties(void *data, bool is_source, enum filter_type
 	}
 
 	obs_property_set_modified_callback2(
-		glow_position_list, setting_glow_position_modified, data);
+		glow_position_list, setting_glow_position_modified, (void *)is_source);
 
 	obs_properties_add_bool(
 		props, "ignore_source_border",
@@ -487,6 +485,12 @@ static obs_properties_t *properties(void *data, bool is_source, enum filter_type
 		obs_module_text("StrokeFilter.Padding.Amount"), 0, 4000, 1
 	);
 	obs_property_float_set_suffix(padding_amt, "px");
+
+	obs_property_t *overflow = obs_properties_add_bool(
+		props, "padding_overflow",
+		obs_module_text(PADDING_OVERFLOW_LABEL));
+	obs_property_set_long_description(
+		overflow, obs_module_text(PADDING_OVERFLOW_DESCRIPTION));
 
 	obs_property_t *blur_type_list = obs_properties_add_list(
 		props, "blur_type",
@@ -611,15 +615,36 @@ static void glow_filter_video_tick(void *data, float seconds)
 		load_glow_source(filter);
 	}
 
+	uint32_t base_width = 0;
+	uint32_t base_height = 0;
 	if (filter->is_filter) {
 		obs_source_t *target = obs_filter_get_target(filter->context);
 		if (!target) {
 			return;
 		}
-		filter->width = (uint32_t)obs_source_get_base_width(target);
-		filter->height = (uint32_t)obs_source_get_base_height(target);
-		filter->source_width = (uint32_t)obs_source_get_base_width(target);
-		filter->source_height = (uint32_t)obs_source_get_base_height(target);
+		base_width = (uint32_t)obs_source_get_base_width(target);
+		base_height = (uint32_t)obs_source_get_base_height(target);
+		filter->width = base_width;
+		filter->height = base_height;
+		filter->source_width = base_width;
+		filter->source_height = base_height;
+	} else {
+		obs_source_t *input = filter->source_input_source
+			? obs_weak_source_get_source(filter->source_input_source)
+			: NULL;
+		if (input) {
+			base_width = obs_source_get_width(input);
+			base_height = obs_source_get_height(input);
+			obs_source_release(input);
+		}
+	}
+
+	if (filter->overflow || !base_width || !base_height) {
+		filter->output_width = base_width;
+		filter->output_height = base_height;
+	} else {
+		filter->output_width = base_width + filter->pad_l + filter->pad_r;
+		filter->output_height = base_height + filter->pad_t + filter->pad_b;
 	}
 	filter->rendered = false;
 }
@@ -707,6 +732,7 @@ static bool setting_glow_position_modified(void *data, obs_properties_t *props,
 		setting_visibility("fill", false, props);
 		setting_visibility("glow_padding", false, props);
 		setting_visibility("padding_amount", false, props);
+		setting_visibility("padding_overflow", false, props);
 		setting_visibility("threshold_inner", true, props);
 		setting_visibility("threshold_outer", false, props);
 		break;
@@ -715,6 +741,7 @@ static bool setting_glow_position_modified(void *data, obs_properties_t *props,
 		setting_visibility("fill", is_source, props);
 		setting_visibility("glow_padding", true, props);
 		setting_visibility("padding_amount", paddingType == PADDING_MANUAL, props);
+		setting_visibility("padding_overflow", paddingType != PADDING_NONE, props);
 		setting_visibility("threshold_inner", false, props);
 		setting_visibility("threshold_outer", true, props);
 		break;
@@ -731,5 +758,6 @@ static bool setting_glow_padding_modified(obs_properties_t* props,
 	enum padding_type paddingType = (enum padding_type)obs_data_get_int(settings, "glow_padding");
 
 	setting_visibility("padding_amount", paddingType == PADDING_MANUAL, props);
+	setting_visibility("padding_overflow", paddingType != PADDING_NONE, props);
 	return true;
 }

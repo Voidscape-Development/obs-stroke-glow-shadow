@@ -199,11 +199,16 @@ static void stroke_filter_update(void *data, obs_data_t *settings)
 	filter->padding_amount = obs_data_get_int(settings, "stroke_padding") == PADDING_MANUAL ? (uint32_t)obs_data_get_int(settings, "padding_amount") : 0;
 
 	if (obs_data_get_int(settings, "stroke_padding") == PADDING_AUTO && filter->stroke_position == STROKE_POSITION_OUTER) {
-		filter->padding_amount = (uint32_t)filter->stroke_size + (uint32_t)filter->stroke_offset;
+		// Round up and leave a pixel for the anti-aliased outer edge.
+		filter->padding_amount = (uint32_t)ceilf(filter->stroke_size + filter->stroke_offset) + 1;
 	}
 
 	filter->ignore_source_border =
 		obs_data_get_bool(settings, "ignore_source_border");
+
+	filter->overflow =
+		obs_data_get_int(settings, "stroke_padding") != PADDING_NONE &&
+		obs_data_get_bool(settings, "padding_overflow");
 
 	bool is_inner = filter->stroke_position == STROKE_POSITION_INNER || filter->stroke_position == STROKE_POSITION_INNER_CONTOUR;
 
@@ -451,6 +456,11 @@ static obs_properties_t *properties(void *data, bool is_source)
 
 	obs_property_float_set_suffix(p, "px");
 
+	p = obs_properties_add_bool(props, "padding_overflow",
+				    obs_module_text(PADDING_OVERFLOW_LABEL));
+	obs_property_set_long_description(
+		p, obs_module_text(PADDING_OVERFLOW_DESCRIPTION));
+
 	p = obs_properties_add_float_slider(
 		props, "jump_flood_threshold_inner",
 		obs_module_text("StrokeFilter.MaskThreshold"), 0.0, 100.0, 0.01
@@ -589,30 +599,38 @@ static void stroke_filter_video_tick(void *data, float seconds)
 		load_source(filter);
 	}
 
+	uint32_t base_width = 0;
+	uint32_t base_height = 0;
 	if (filter->is_filter) {
 		obs_source_t *target = obs_filter_get_target(filter->context);
 		if (!target) {
 			return;
 		}
-		filter->source_width = (uint32_t)obs_source_get_base_width(target);
-		filter->source_height = (uint32_t)obs_source_get_base_height(target);
-		if (filter->stroke_position == STROKE_POSITION_INNER || filter->stroke_position == STROKE_POSITION_INNER_CONTOUR) {
-			filter->output_width = (uint32_t)obs_source_get_base_width(target);
-			filter->output_height = (uint32_t)obs_source_get_base_height(target);
-		}
-		else {
-			filter->output_width = (uint32_t)obs_source_get_base_width(target) + filter->pad_l + filter->pad_r;
-			filter->output_height = (uint32_t)obs_source_get_base_height(target) + filter->pad_t + filter->pad_b;
-		}
+		base_width = (uint32_t)obs_source_get_base_width(target);
+		base_height = (uint32_t)obs_source_get_base_height(target);
+		filter->source_width = base_width;
+		filter->source_height = base_height;
 	} else {
-		if (filter->stroke_position == STROKE_POSITION_INNER || filter->stroke_position == STROKE_POSITION_INNER_CONTOUR) {
-			filter->output_width = filter->source_width;
-			filter->output_height = filter->source_height;
-		} else {
-			filter->output_width = filter->width;
-			filter->output_height = filter->height;
+		obs_source_t *input = filter->source_input_source
+			? obs_weak_source_get_source(filter->source_input_source)
+			: NULL;
+		if (input) {
+			base_width = obs_source_get_width(input);
+			base_height = obs_source_get_height(input);
+			obs_source_release(input);
 		}
+	}
 
+	// Inner strokes only pad to treat the source border as an edge, and
+	// crop that padding back off when drawing.
+	const bool inner = filter->stroke_position == STROKE_POSITION_INNER ||
+			   filter->stroke_position == STROKE_POSITION_INNER_CONTOUR;
+	if (inner || filter->overflow || !base_width || !base_height) {
+		filter->output_width = base_width;
+		filter->output_height = base_height;
+	} else {
+		filter->output_width = base_width + filter->pad_l + filter->pad_r;
+		filter->output_height = base_height + filter->pad_t + filter->pad_b;
 	}
 	filter->rendered = false;
 }
@@ -684,6 +702,7 @@ static bool setting_stroke_padding_modified(obs_properties_t* props,
 	enum padding_type paddingType = (enum padding_type)obs_data_get_int(settings, "stroke_padding");
 
 	setting_visibility("padding_amount", paddingType == PADDING_MANUAL, props);
+	setting_visibility("padding_overflow", paddingType != PADDING_NONE, props);
 	return true;
 }
 
@@ -711,6 +730,7 @@ static bool setting_stroke_position_modified(void *data,
 		setting_visibility("fill", false, props);
 		setting_visibility("stroke_padding", false, props);
 		setting_visibility("padding_amount", false, props);
+		setting_visibility("padding_overflow", false, props);
 		break;
 	case STROKE_POSITION_OUTER:
 		setting_visibility("ignore_source_border", false, props);
@@ -725,6 +745,7 @@ static bool setting_stroke_position_modified(void *data,
 		setting_visibility("fill", is_source, props);
 		setting_visibility("stroke_padding", true, props);
 		setting_visibility("padding_amount", paddingType == PADDING_MANUAL, props);
+		setting_visibility("padding_overflow", paddingType != PADDING_NONE, props);
 		break;
 	case STROKE_POSITION_OUTER_CONTOUR:
 		setting_visibility("ignore_source_border", false, props);
@@ -739,6 +760,7 @@ static bool setting_stroke_position_modified(void *data,
 		setting_visibility("fill", false, props);
 		setting_visibility("stroke_padding", true, props);
 		setting_visibility("padding_amount", paddingType == PADDING_MANUAL, props);
+		setting_visibility("padding_overflow", paddingType != PADDING_NONE, props);
 		break;
 	case STROKE_POSITION_INNER_CONTOUR:
 		setting_visibility("ignore_source_border", true, props);
@@ -753,6 +775,7 @@ static bool setting_stroke_position_modified(void *data,
 		setting_visibility("fill", false, props);
 		setting_visibility("stroke_padding", false, props);
 		setting_visibility("padding_amount", false, props);
+		setting_visibility("padding_overflow", false, props);
 		break;
 	default:
 		break;

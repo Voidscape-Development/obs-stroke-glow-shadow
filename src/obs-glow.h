@@ -96,6 +96,12 @@ struct glow_filter_data {
 	uint32_t pad_r;
 
 	uint32_t padding_amount;
+	// Draw the padding outside the source's bounds instead of growing the
+	// source's reported size.
+	bool overflow;
+
+	uint32_t output_width;
+	uint32_t output_height;
 
 	struct vec2 mul_val;
 	struct vec2 add_val;

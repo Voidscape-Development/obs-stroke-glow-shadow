@@ -248,15 +248,46 @@ void glow_render_padded_input(glow_filter_data_t *data)
 void glow_render_cropped_output(glow_filter_data_t *data)
 {
 	gs_effect_t *effect = data->effect_glow;
+	gs_texture_t *texture = data->output_texrender
+		? gs_texrender_get_texture(data->output_texrender)
+		: NULL;
+	if (!effect || !texture) {
+		if (data->is_filter) {
+			obs_source_skip_video_filter(data->context);
+		}
+		return;
+	}
+
+	// The output texture is the padded size; draw all of it. Inner
+	// glows have no padding. Don't modify data->width/height here, this
+	// is also called for repeat renders within the same frame.
+	const uint32_t width = gs_texture_get_width(texture);
+	const uint32_t height = gs_texture_get_height(texture);
+
+	data->mul_val.x = 1.0f;
+	data->mul_val.y = 1.0f;
+	data->add_val.x = 0.0f;
+	data->add_val.y = 0.0f;
+
+	if (data->param_mul_val) {
+		gs_effect_set_vec2(data->param_mul_val, &data->mul_val);
+	}
+	if (data->param_add_val) {
+		gs_effect_set_vec2(data->param_add_val, &data->add_val);
+	}
+
+	struct vec2 dither_dims;
+	vec2_set(&dither_dims, (float)width, (float)height);
+	gs_eparam_t *param_dither_size =
+		gs_effect_get_param_by_name(effect, "dither_size");
+	if (param_dither_size) {
+		gs_effect_set_vec2(param_dither_size, &dither_dims);
+	}
+
 	if (data->is_source) {
-		gs_texture_t *texture =
-			gs_texrender_get_texture(data->output_texrender);
 		gs_eparam_t *param =
 			gs_effect_get_param_by_name(effect, "output_image");
 		gs_effect_set_texture(param, texture);
-
-		int base_width = data->width;
-		int base_height = data->height;
 
 		const bool previous = gs_framebuffer_srgb_enabled();
 		const bool linear_srgb =
@@ -264,42 +295,6 @@ void glow_render_cropped_output(glow_filter_data_t *data)
 			(data->fill_type == GLOW_FILL_TYPE_COLOR &&
 			 data->glow_color.w < 1.0f);
 		gs_enable_framebuffer_srgb(linear_srgb);
-
-		if (data->glow_position == GLOW_POSITION_INNER) {
-			data->width = data->width - data->pad_l - data->pad_r;
-			data->height = data->height - data->pad_t - data->pad_b;
-
-			data->mul_val.x =
-				(float)data->width / (float)base_width;
-			data->add_val.x =
-				(float)data->pad_l / (float)base_width;
-
-			data->mul_val.y =
-				(float)data->height / (float)base_height;
-			data->add_val.y =
-				(float)data->pad_t / (float)base_height;
-		} else {
-			data->mul_val.x = 1.0;
-			data->mul_val.y = 1.0;
-			data->add_val.x = 0.0;
-			data->add_val.y = 0.0;
-		}
-
-		// Grab the proper padding/
-		if (data->param_mul_val) {
-			gs_effect_set_vec2(data->param_mul_val, &data->mul_val);
-		}
-		if (data->param_add_val) {
-			gs_effect_set_vec2(data->param_add_val, &data->add_val);
-		}
-
-		struct vec2 dither_dims;
-		vec2_set(&dither_dims, (float)data->width, (float)data->height);
-		gs_eparam_t *param_dither_size =
-			gs_effect_get_param_by_name(effect, "dither_size");
-		if (param_dither_size) {
-			gs_effect_set_vec2(param_dither_size, &dither_dims);
-		}
 
 		const bool color_fill = data->fill_type == GLOW_FILL_TYPE_COLOR;
 		const float content_linear = (color_fill && linear_srgb) ? 1.0f
@@ -318,16 +313,23 @@ void glow_render_cropped_output(glow_filter_data_t *data)
 			gs_effect_set_float(param_decode_output, decode_output);
 		}
 
+		gs_matrix_push();
+		if (data->overflow) {
+			gs_matrix_translate3f(-(float)data->pad_l,
+					      -(float)data->pad_t, 0.0f);
+		}
+
 		gs_technique_t *tech =
 			gs_effect_get_technique(effect, "DrawOutput");
 		gs_technique_begin(tech);
 		gs_technique_begin_pass(tech, 0);
 
-		gs_draw_sprite(0, 0, data->width, data->height);
+		gs_draw_sprite(0, 0, width, height);
 
 		gs_technique_end_pass(tech);
 		gs_technique_end(tech);
 
+		gs_matrix_pop();
 		gs_enable_framebuffer_srgb(previous);
 	} else {
 
@@ -352,44 +354,27 @@ void glow_render_cropped_output(glow_filter_data_t *data)
 			return;
 		}
 
-		gs_texture_t *texture =
-			gs_texrender_get_texture(data->output_texrender);
-
 		gs_eparam_t *image =
 			gs_effect_get_param_by_name(effect, "output_image");
 		gs_effect_set_texture(image, texture);
 
-		int output_width =
-			data->source_width + data->pad_l + data->pad_r;
-		int output_height =
-			data->source_height + data->pad_t + data->pad_b;
-
-		data->mul_val.x = 1.0;
-		data->mul_val.y = 1.0;
-		data->add_val.x = 0.0;
-		data->add_val.y = 0.0;
-
-		// Grab the proper padding/
-		if (data->param_mul_val) {
-			gs_effect_set_vec2(data->param_mul_val, &data->mul_val);
-		}
-		if (data->param_add_val) {
-			gs_effect_set_vec2(data->param_add_val, &data->add_val);
+		gs_eparam_t *input_image =
+			gs_effect_get_param_by_name(effect, "input_image");
+		if (input_image) {
+			gs_effect_set_texture(input_image,
+					      gs_texrender_get_texture(
+						      data->input_texrender));
 		}
 
-		struct vec2 dither_dims;
-		vec2_set(&dither_dims, (float)output_width,
-			 (float)output_height);
-		gs_eparam_t *param_dither_size =
-			gs_effect_get_param_by_name(effect, "dither_size");
-		if (param_dither_size) {
-			gs_effect_set_vec2(param_dither_size, &dither_dims);
+		gs_matrix_push();
+		if (data->overflow) {
+			gs_matrix_translate3f(-(float)data->pad_l,
+					      -(float)data->pad_t, 0.0f);
 		}
-
 		const char *technique = "DrawOutput";
 		obs_source_process_filter_tech_end(data->context, effect,
-						   output_width, output_height,
-						   technique);
+						   width, height, technique);
+		gs_matrix_pop();
 	}
 }
 
@@ -398,6 +383,9 @@ void render_glow_alpha_mask(glow_filter_data_t *data)
 	gs_effect_t *effect = data->effect_glow;
 	gs_texture_t *input_texture =
 		gs_texrender_get_texture(data->input_texrender);
+	if (!effect || !input_texture) {
+		return;
+	}
 
 	gs_eparam_t *image = gs_effect_get_param_by_name(effect, "image");
 	gs_effect_set_texture(image, input_texture);
