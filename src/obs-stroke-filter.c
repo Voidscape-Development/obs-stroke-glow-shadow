@@ -1,7 +1,5 @@
 #include "obs-stroke-filter.h"
 #include "obs-stroke.h"
-#include "blur/alpha-blur.h"
-#include "anti-alias.h"
 #include "stroke.h"
 #include <math.h>
 
@@ -50,8 +48,6 @@ static void *stroke_filter_create(obs_data_t *settings, obs_source_t *source)
 	dstr_init_copy(&filter->fill_source_name, "");
 	dstr_init_copy(&filter->source_name, "");
 
-	filter->alpha_blur_data = bzalloc(sizeof(alpha_blur_data_t));
-
 	filter->context = source;
 	filter->input_texture_generated = false;
 	filter->is_source = obs_source_get_type(filter->context) ==
@@ -60,27 +56,9 @@ static void *stroke_filter_create(obs_data_t *settings, obs_source_t *source)
 	filter->is_filter = obs_source_get_type(filter->context) ==
 			    OBS_SOURCE_TYPE_FILTER;
 
-	filter->param_stroke_texel_step = NULL;
-	filter->param_stroke_stroke_thickness = NULL;
-	filter->param_stroke_offset = NULL;
-	filter->param_stroke_inner_stroke_thickness = NULL;
-	filter->param_stroke_inner_offset = NULL;
-
-	filter->param_fill_stroke_image = NULL;
-	filter->param_fill_stroke_stroke_mask = NULL;
-	filter->param_fill_stroke_fill_source = NULL;
-	filter->param_fill_stroke_fill_color = NULL;
-	filter->param_fill_stroke_fill_behind = NULL;
-
-	filter->param_aa_texel_step = NULL;
-	filter->param_aa_size = NULL;
-	filter->param_aa_image = NULL;
-
 	filter->reload = true;
 
 	filter->jump_flood_threshold = 0.5;
-
-	alpha_blur_init(filter->alpha_blur_data);
 
 	obs_source_update(source, settings);
 	return filter;
@@ -95,28 +73,10 @@ static void stroke_filter_destroy(void *data)
 	dstr_free(&filter->fill_source_name);
 	dstr_free(&filter->source_name);
 
-	if (filter->effect_stroke) {
-		gs_effect_destroy(filter->effect_stroke);
-	}
 	if (filter->effect_jump_flood_sdf) {
 		gs_effect_destroy(filter->effect_jump_flood_sdf);
 	}
-	if (filter->effect_stroke_inner) {
-		gs_effect_destroy(filter->effect_stroke_inner);
-	}
-	if (filter->effect_anti_alias) {
-		gs_effect_destroy(filter->effect_anti_alias);
-	}
-	if (filter->effect_fill_stroke) {
-		gs_effect_destroy(filter->effect_fill_stroke);
-	}
-	if (filter->effect_output) {
-		gs_effect_destroy(filter->effect_output);
-	}
 
-	if (filter->stroke_mask) {
-		gs_texrender_destroy(filter->stroke_mask);
-	}
 	if (filter->input_texrender) {
 		gs_texrender_destroy(filter->input_texrender);
 	}
@@ -148,10 +108,7 @@ static void stroke_filter_destroy(void *data)
 		obs_weak_source_release(filter->fill_source_source);
 	}
 
-	alpha_blur_destroy(filter->alpha_blur_data);
-
 	obs_leave_graphics();
-	bfree(filter->alpha_blur_data);
 	bfree(filter);
 }
 
@@ -176,15 +133,9 @@ static void stroke_filter_update(void *data, obs_data_t *settings)
 	filter->stroke_offset =
 		(float)obs_data_get_double(settings, "stroke_offset");
 
-	// THIS WILL MESS UP FILTER VERSION.
-	// REVISIT!! TODO TODO TODO
 	vec4_from_rgba(&filter->stroke_color,
 		(uint32_t)obs_data_get_int(settings,
 			"stroke_fill_color"));
-
-	vec4_from_rgba_srgb(&filter->stroke_color_srgb,
-		       (uint32_t)obs_data_get_int(settings,
-						  "stroke_fill_color"));
 
 	filter->fill_type =
 		(enum stroke_fill_type)obs_data_get_int(settings, "stroke_fill_type");
@@ -349,10 +300,6 @@ static void stroke_filter_video_render(void *data, gs_effect_t *effect)
 		return;
 	}
 
-	// gs_texrender_t *tmp = filter->output_texrender;
-	// filter->output_texrender = filter->input_texrender;
-	// filter->input_texrender = tmp;
-
 	// 2. Create Stroke Mask
 	if (filter->stroke_position == STROKE_POSITION_OUTER || filter->stroke_position == STROKE_POSITION_OUTER_CONTOUR) {
 		render_jf_outer_threshold(filter);
@@ -368,11 +315,6 @@ static void stroke_filter_video_render(void *data, gs_effect_t *effect)
 	}
 	
 	render_jf_distance(filter);
-
-
-	// gs_texrender_t *tmp = filter->output_texrender;
-	// filter->output_texrender = filter->input_texrender;
-	// filter->input_texrender = tmp;
 
 	// 3. Draw result (filter->output_texrender) to source
 	render_cropped_output(filter);
@@ -643,8 +585,6 @@ static void stroke_filter_defaults(obs_data_t *settings)
 				 STROKE_FILL_TYPE_COLOR);
 	obs_data_set_default_string(settings, "stroke_fill_source", "");
 	obs_data_set_default_int(settings, "stroke_fill_color", DEFAULT_COLOR);
-	obs_data_set_default_int(settings, "stroke_offset_quality",
-				 OFFSET_QUALITY_NORMAL);
 	obs_data_set_default_int(settings, "stroke_position",
 				 STROKE_POSITION_OUTER);
 	obs_data_set_default_bool(settings, "ignore_source_border", true);
@@ -661,13 +601,7 @@ static void stroke_filter_defaults(obs_data_t *settings)
 
 static void load_effects(stroke_filter_data_t *filter)
 {
-	load_1d_alpha_blur_effect(filter->alpha_blur_data);
-	load_stroke_effect(filter);
 	load_jump_flood_sdf_effect(filter);
-	load_1d_anti_alias_effect(filter);
-	load_fill_stroke_effect(filter);
-	load_stroke_inner_effect(filter);
-	load_output_effect(filter);
 }
 
 static bool setting_fill_type_modified(obs_properties_t *props,

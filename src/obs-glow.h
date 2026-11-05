@@ -61,7 +61,6 @@ struct glow_filter_data {
 
 	// Effects
 	gs_effect_t *effect_glow;
-	gs_effect_t *effect_output;
 
 	// Render pipeline
 	bool input_rendered;
@@ -116,7 +115,6 @@ struct glow_filter_data {
 
 	enum glow_position glow_position;
 
-	gs_eparam_t *param_glow_texel_step;
 	gs_eparam_t *param_glow_image;
 	gs_eparam_t *param_glow_mask;
 	gs_eparam_t *param_glow_fill_source;
@@ -129,6 +127,4 @@ struct glow_filter_data {
 	gs_eparam_t* param_add_val;
 
 	gs_eparam_t* param_threshold;
-
-	gs_eparam_t *param_output_image;
 };

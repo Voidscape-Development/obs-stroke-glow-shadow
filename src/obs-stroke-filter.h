@@ -1,13 +1,6 @@
 #pragma once
 
 #include <obs-module.h>
-// #include <util/base.h>
-// #include <util/dstr.h>
-// #include <util/darray.h>
-// #include <util/platform.h>
-// #include <graphics/image-file.h>
-
-// #include <stdio.h>
 
 #include "version.h"
 #include "obs-stroke.h"

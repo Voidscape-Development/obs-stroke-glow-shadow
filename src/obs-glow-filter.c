@@ -112,12 +112,10 @@ static glow_filter_data_t *filter_create(obs_source_t *source)
 	filter->is_filter = obs_source_get_type(filter->context) ==
 			    OBS_SOURCE_TYPE_FILTER;
 
-	filter->param_glow_texel_step = NULL;
 	filter->param_glow_image = NULL;
 	filter->param_glow_mask = NULL;
 	filter->param_glow_fill_source = NULL;
 	filter->param_glow_fill_color = NULL;
-	filter->param_glow_texel_step = NULL;
 	filter->param_glow_intensity = NULL;
 	filter->param_offset_texel = NULL;
 	filter->param_glow_fill_behind = NULL;
@@ -137,9 +135,6 @@ static void glow_filter_destroy(void *data)
 
 	if (filter->effect_glow) {
 		gs_effect_destroy(filter->effect_glow);
-	}
-	if (filter->effect_output) {
-		gs_effect_destroy(filter->effect_output);
 	}
 	if (filter->input_texrender) {
 		gs_texrender_destroy(filter->input_texrender);
@@ -366,17 +361,9 @@ static void glow_filter_video_render(void *data, gs_effect_t *effect)
 		return;
 	}
 
-	//gs_texrender_t* tmp = filter->input_texrender;
-	//filter->input_texrender = filter->output_texrender;
-	//filter->output_texrender = tmp;
-
 	// 2. Generate the alpha mask to be blurred based on user
 	//    threshold input.
 	render_glow_alpha_mask(filter);
-
-	//gs_texrender_t* tmp = filter->alpha_mask_texrender;
-	//filter->alpha_mask_texrender = filter->output_texrender;
-	//filter->output_texrender = tmp;
 
 	// 3. Apply effect to texture, and render texture to video
 	if (filter->blur_type == BLUR_TYPE_TRIANGULAR) {
@@ -389,10 +376,6 @@ static void glow_filter_video_render(void *data, gs_effect_t *effect)
 				 filter->alpha_blur_data,
 				 filter->alpha_mask_texrender);
 	}
-
-	//gs_texrender_t* tmp = filter->alpha_blur_data->alpha_blur_output;
-	//filter->alpha_blur_data->alpha_blur_output = filter->output_texrender;
-	//filter->output_texrender = tmp;
 
 	// 4. Render glow effect to output
 	render_glow_filter(filter);
@@ -688,7 +671,6 @@ static void load_effects(glow_filter_data_t *filter)
 	load_1d_alpha_blur_effect(filter->alpha_blur_data);
 	load_effect_dual_kawase(filter->alpha_blur_data);
 	load_glow_effect(filter);
-	load_glow_output_effect(filter);
 }
 
 static bool setting_fill_type_modified(obs_properties_t *props,

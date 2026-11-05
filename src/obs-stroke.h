@@ -1,7 +1,6 @@
 #pragma once
 
 #include <obs-module.h>
-#include "blur/alpha-blur.h"
 #include "defines.h"
 #include <util/dstr.h>
 
@@ -15,14 +14,6 @@ enum stroke_fill_type {
 	STROKE_FILL_TYPE_COLOR = 1,
 	STROKE_FILL_TYPE_SOURCE,
 	STROKE_FILL_TYPE_IMAGE,
-};
-
-#define OFFSET_QUALITY_NORMAL_LABEL "StrokeFilter.OffsetQualityNormal"
-#define OFFSET_QUALITY_HIGH_LABEL "StrokeFilter.OffsetQualityHigh"
-
-enum offset_quality {
-	OFFSET_QUALITY_NORMAL = 1,
-	OFFSET_QUALITY_HIGH,
 };
 
 #define STROKE_POSITION_OUTER_LABEL "StrokeFilter.StrokePositionOuter"
@@ -42,7 +33,6 @@ typedef struct stroke_filter_data stroke_filter_data_t;
 
 struct stroke_filter_data {
 	obs_source_t *context;
-	alpha_blur_data_t *alpha_blur_data;
 
 	obs_weak_source_t *source_input_source;
 
@@ -53,12 +43,7 @@ struct stroke_filter_data {
 	bool is_source;
 
 	// Effects
-	gs_effect_t *effect_stroke;
 	gs_effect_t *effect_jump_flood_sdf;
-	gs_effect_t *effect_stroke_inner;
-	gs_effect_t *effect_anti_alias;
-	gs_effect_t *effect_fill_stroke;
-	gs_effect_t *effect_output;
 
 	// Render pipeline
 	bool input_rendered;
@@ -66,8 +51,6 @@ struct stroke_filter_data {
 	bool output_rendered;
 	gs_texrender_t* output_texrender;
 	// Frame Buffers
-	gs_texrender_t* stroke_mask;
-
 	gs_texrender_t* buffer_a;
 	gs_texrender_t* buffer_b;
 	gs_texrender_t* buffer_outer_threshold;
@@ -115,7 +98,6 @@ struct stroke_filter_data {
 	float jump_flood_threshold;
 
 	struct vec4 stroke_color;
-	struct vec4 stroke_color_srgb;
 
 	enum stroke_fill_type fill_type;
 	obs_weak_source_t *fill_source_source;
@@ -127,24 +109,6 @@ struct stroke_filter_data {
 
 	struct vec2 mul_val;
 	struct vec2 add_val;
-
-	gs_eparam_t* param_stroke_texel_step;
-	gs_eparam_t* param_stroke_stroke_thickness;
-	gs_eparam_t* param_stroke_offset;
-
-	gs_eparam_t* param_stroke_inner_texel_step;
-	gs_eparam_t* param_stroke_inner_stroke_thickness;
-	gs_eparam_t* param_stroke_inner_offset;
-
-	gs_eparam_t* param_fill_stroke_image;
-	gs_eparam_t* param_fill_stroke_stroke_mask;
-	gs_eparam_t* param_fill_stroke_fill_source;
-	gs_eparam_t* param_fill_stroke_fill_color;
-	gs_eparam_t* param_fill_stroke_fill_behind;
-
-	gs_eparam_t* param_aa_texel_step;
-	gs_eparam_t* param_aa_size;
-	gs_eparam_t* param_aa_image;
 
 	gs_eparam_t* param_jump_flood_threshold;
 	gs_eparam_t* param_stroke_uv_size;
@@ -165,8 +129,6 @@ struct stroke_filter_data {
 
 	gs_eparam_t* param_mul_val;
 	gs_eparam_t* param_add_val;
-
-	gs_eparam_t* param_output_image;
 
 	// Callback Functions
 	void (*video_render)(stroke_filter_data_t *filter);

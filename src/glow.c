@@ -31,35 +31,12 @@ void load_glow_effect(glow_filter_data_t *filter)
 				filter->param_offset_texel = param;
 			} else if (strcmp(info.name, "fill_behind") == 0) {
 				filter->param_glow_fill_behind = param;
-			} else if (strcmp(info.name, "fill_behind") == 0) {
-				filter->param_glow_fill_behind = param;
 			} else if (strcmp(info.name, "mul_val") == 0) {
 				filter->param_mul_val = param;
 			} else if (strcmp(info.name, "add_val") == 0) {
 				filter->param_add_val = param;
 			} else if (strcmp(info.name, "threshold") == 0) {
 				filter->param_threshold = param;
-			}
-		}
-	}
-}
-
-void load_glow_output_effect(glow_filter_data_t *filter)
-{
-	const char *effect_file_path = "/shaders/render_output.effect";
-	filter->effect_output =
-		load_shader_effect(filter->effect_output, effect_file_path);
-	if (filter->effect_output) {
-		size_t effect_count =
-			gs_effect_get_num_params(filter->effect_output);
-		for (size_t effect_index = 0; effect_index < effect_count;
-		     effect_index++) {
-			gs_eparam_t *param = gs_effect_get_param_by_idx(
-				filter->effect_output, effect_index);
-			struct gs_effect_param_info info;
-			gs_effect_get_param_info(param, &info);
-			if (strcmp(info.name, "output_image") == 0) {
-				filter->param_output_image = param;
 			}
 		}
 	}
@@ -158,9 +135,6 @@ void glow_render_padded_input(glow_filter_data_t *data)
 			gs_ortho(0.0f, (float)data->width, 0.0f,
 				 (float)data->height, -100.0f, 100.0f);
 			const char *technique = "DrawCropPad";
-			//obs_source_process_filter_tech_end(
-			//	input_source, effect, data->width,
-			//	data->height, technique);
 			while (gs_effect_loop(effect, technique))
 				gs_draw_sprite(texture, 0, data->width,
 					       data->height);
@@ -168,7 +142,6 @@ void glow_render_padded_input(glow_filter_data_t *data)
 			gs_blend_state_pop();
 			data->input_texture_generated = true;
 		}
-		//gs_texture_destroy(texture);
 		gs_texrender_destroy(source_render);
 	} else {
 		obs_source_t *input_source = data->context;

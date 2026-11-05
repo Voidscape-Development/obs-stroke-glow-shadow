@@ -43,25 +43,6 @@ void set_blending_parameters()
 	gs_blend_function(GS_BLEND_ONE, GS_BLEND_ZERO);
 }
 
-void set_render_parameters()
-{
-	// Culling
-	gs_set_cull_mode(GS_NEITHER);
-
-	// Enable all colors.
-	gs_enable_color(true, true, true, true);
-
-	// Depth- No depth test.
-	gs_enable_depth_test(false);
-	gs_depth_function(GS_ALWAYS);
-
-	// Setup Stencil- No test, no write.
-	gs_enable_stencil_test(false);
-	gs_enable_stencil_write(false);
-	gs_stencil_function(GS_STENCIL_BOTH, GS_ALWAYS);
-	gs_stencil_op(GS_STENCIL_BOTH, GS_ZERO, GS_ZERO, GS_ZERO);
-}
-
 bool add_source_to_list(void *data, obs_source_t *source)
 {
 	obs_property_t *p = data;

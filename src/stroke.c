@@ -1,29 +1,6 @@
 #include "stroke.h"
 #include <string.h>
 
-void load_stroke_effect(stroke_filter_data_t *filter)
-{
-	const char *effect_file_path = "/shaders/stroke.effect";
-	filter->effect_stroke =
-		load_shader_effect(filter->effect_stroke, effect_file_path);
-	if (filter->effect_stroke) {
-		size_t effect_count =
-			gs_effect_get_num_params(filter->effect_stroke);
-		for (size_t effect_index = 0; effect_index < effect_count;
-		     effect_index++) {
-			gs_eparam_t *param = gs_effect_get_param_by_idx(
-				filter->effect_stroke, effect_index);
-			struct gs_effect_param_info info;
-			gs_effect_get_param_info(param, &info);
-			if (strcmp(info.name, "stroke_thickness") == 0) {
-				filter->param_stroke_stroke_thickness = param;
-			} else if (strcmp(info.name, "stroke_offset") == 0) {
-				filter->param_stroke_offset = param;
-			}
-		}
-	}
-}
-
 void load_jump_flood_sdf_effect(stroke_filter_data_t* filter)
 {
 	const char* effect_file_path = filter->is_source ? "/shaders/jump-flood-sdf-source.effect" : "/shaders/jump-flood-sdf.effect";
@@ -74,84 +51,6 @@ void load_jump_flood_sdf_effect(stroke_filter_data_t* filter)
 				filter->param_add_val = param;
 			} else if (strcmp(info.name, "infill") == 0) {
 				filter->param_infill = param;
-			}
-		}
-	}
-}
-
-void load_output_effect(stroke_filter_data_t *filter)
-{
-	const char *effect_file_path = "/shaders/render_output.effect";
-	filter->effect_output =
-		load_shader_effect(filter->effect_output, effect_file_path);
-	if (filter->effect_output) {
-		size_t effect_count =
-			gs_effect_get_num_params(filter->effect_output);
-		for (size_t effect_index = 0; effect_index < effect_count;
-		     effect_index++) {
-			gs_eparam_t *param = gs_effect_get_param_by_idx(
-				filter->effect_output, effect_index);
-			struct gs_effect_param_info info;
-			gs_effect_get_param_info(param, &info);
-			if (strcmp(info.name, "output_image") == 0) {
-				filter->param_output_image = param;
-			}
-		}
-	}
-}
-
-void load_stroke_inner_effect(stroke_filter_data_t *filter)
-{
-	const char *effect_file_path = "/shaders/stroke_inner.effect";
-	filter->effect_stroke_inner = load_shader_effect(
-		filter->effect_stroke_inner, effect_file_path);
-	if (filter->effect_stroke_inner) {
-		size_t effect_count =
-			gs_effect_get_num_params(filter->effect_stroke_inner);
-		for (size_t effect_index = 0; effect_index < effect_count;
-		     effect_index++) {
-			gs_eparam_t *param = gs_effect_get_param_by_idx(
-				filter->effect_stroke_inner, effect_index);
-			struct gs_effect_param_info info;
-			gs_effect_get_param_info(param, &info);
-			if (strcmp(info.name, "stroke_thickness") == 0) {
-				filter->param_stroke_inner_stroke_thickness =
-					param;
-			} else if (strcmp(info.name, "stroke_offset") == 0) {
-				filter->param_stroke_inner_offset = param;
-			}
-		}
-	}
-}
-
-void load_fill_stroke_effect(stroke_filter_data_t *filter)
-{
-	const char *effect_file_path =
-		filter->is_filter ? "/shaders/fill_stroke.effect"
-				  : "/shaders/fill_stroke_source.effect";
-	filter->effect_fill_stroke = load_shader_effect(
-		filter->effect_fill_stroke, effect_file_path);
-	if (filter->effect_fill_stroke) {
-		size_t effect_count =
-			gs_effect_get_num_params(filter->effect_fill_stroke);
-		for (size_t effect_index = 0; effect_index < effect_count;
-		     effect_index++) {
-			gs_eparam_t *param = gs_effect_get_param_by_idx(
-				filter->effect_fill_stroke, effect_index);
-			struct gs_effect_param_info info;
-			gs_effect_get_param_info(param, &info);
-			if (strcmp(info.name, "image") == 0) {
-				filter->param_fill_stroke_image = param;
-			} else if (strcmp(info.name, "stroke_mask") == 0) {
-				filter->param_fill_stroke_stroke_mask = param;
-			} else if (strcmp(info.name, "stroke_fill_source") ==
-				   0) {
-				filter->param_fill_stroke_fill_source = param;
-			} else if (strcmp(info.name, "stroke_fill_color") ==
-				   0) {
-				filter->param_fill_stroke_fill_color = param;
-			} else if (strcmp(info.name, "fill_behind") == 0) {
-				filter->param_fill_stroke_fill_behind = param;
 			}
 		}
 	}
@@ -259,16 +158,12 @@ void render_padded_input(stroke_filter_data_t* data)
 				(float)data->height, -100.0f, 100.0f);
 			set_uv_size(data);
 			const char* technique = "DrawCropPad";
-			//obs_source_process_filter_tech_end(
-			//	input_source, effect, data->width,
-			//	data->height, technique);
 			while (gs_effect_loop(effect, technique))
 				gs_draw_sprite(texture, 0, data->width, data->height);
 			gs_texrender_end(data->input_texrender);
 			gs_blend_state_pop();
 			data->input_texture_generated = true;
 		}
-		//gs_texture_destroy(texture);
 		gs_texrender_destroy(source_render);
 	} else {
 		obs_source_t* input_source = data->context;
@@ -486,15 +381,12 @@ void render_jf_passes_outer(stroke_filter_data_t* data, float maxExtent)
 	if (!effect) {
 		return;
 	}
-	//bool contour = data->stroke_position == STROKE_POSITION_OUTER_CONTOUR || data->stroke_position == STROKE_POSITION_INNER_CONTOUR;
-	//float maxExtent = contour ? fmaxf((float)data->width, (float)data->height) : data->stroke_offset + data->stroke_size;
 	int iExtent = (int)maxExtent + 1;
 
 	int maxPass = 1;
 	while (maxPass < iExtent) {
 		maxPass *= 2;
 	}
-	//maxPass = maxPass *= 2;
 	int pass = maxPass;
 
 	while (pass > 0) {
@@ -509,7 +401,6 @@ void render_jf_passes_outer(stroke_filter_data_t* data, float maxExtent)
 		gs_effect_set_texture(image, input_texture);
 
 		if (data->param_jump_flood_offset) {
-			//float fPass = pass != maxPass ? (float)pass : 1.0f;
 			float fPass = (float)pass;
 			gs_effect_set_float(data->param_jump_flood_offset, fPass);
 		}
@@ -548,7 +439,6 @@ void render_jf_passes_inner(stroke_filter_data_t* data, float maxExtent)
 {
 	gs_effect_t* effect = data->effect_jump_flood_sdf;
 
-	//gs_texture_t* input_texture = gs_texrender_get_texture(data->stroke_mask);
 
 	if (!effect) {
 		return;
@@ -558,15 +448,12 @@ void render_jf_passes_inner(stroke_filter_data_t* data, float maxExtent)
 	data->buffer_inner_threshold = data->buffer_a;
 	data->buffer_a = tmp;
 
-	//bool contour = data->stroke_position == STROKE_POSITION_OUTER_CONTOUR || data->stroke_position == STROKE_POSITION_INNER_CONTOUR;
-	//float extent = contour ? fmaxf((float)data->width, (float)data->height) : data->stroke_offset + data->stroke_size;
 	int iExtent = (int)maxExtent + 1;
 
 	int maxPass = 1;
 	while (maxPass < iExtent) {
 		maxPass *= 2;
 	}
-	//maxPass = maxPass *= 2;
 	int pass = maxPass;
 
 	while (pass > 0) {
@@ -581,7 +468,6 @@ void render_jf_passes_inner(stroke_filter_data_t* data, float maxExtent)
 		gs_effect_set_texture(image, input_texture);
 
 		if (data->param_jump_flood_offset) {
-			//float fPass = pass != maxPass ? (float)pass : 1.0f;
 			float fPass = (float)pass;
 			gs_effect_set_float(data->param_jump_flood_offset, fPass);
 		}
@@ -713,8 +599,6 @@ void render_jf_distance(stroke_filter_data_t* data)
 		return;
 	}
 
-	// Add logic here to check srgb of source stroke
-	const bool linear_srgb = gs_get_linear_srgb() || data->stroke_color.w < 1.0f;
 	// Float output so contour falloff gradients can be dithered on output
 	// instead of being quantised (banded) here.
 	data->output_texrender = create_or_reset_texrender_format(
@@ -738,7 +622,6 @@ void render_jf_distance(stroke_filter_data_t* data)
 	}
 
 	if (data->param_jump_flood_stroke_offset) {
-		//float offset = max(data->jump_flood_threshold/2.0f, data->stroke_offset);
 		float offset = data->stroke_offset;
 		gs_effect_set_float(data->param_jump_flood_stroke_offset, offset);
 	}
@@ -834,10 +717,8 @@ void render_jf_distance(stroke_filter_data_t* data)
 		}
 	} else if (data->fill_type == STROKE_FILL_TYPE_COLOR) {
 		if (data->param_jump_flood_stroke_color) {
-			// gs_effect_set_vec4(data->param_jump_flood_stroke_color,
-			// 	linear_srgb ? &data->stroke_color_srgb : &data->stroke_color);
 			gs_effect_set_vec4(data->param_jump_flood_stroke_color,
-				linear_srgb ? &data->stroke_color : &data->stroke_color);
+				&data->stroke_color);
 		}
 	}
 
@@ -869,135 +750,6 @@ void render_jf_distance(stroke_filter_data_t* data)
 		while (gs_effect_loop(effect, shader_id))
 			gs_draw_sprite(odf_texture, 0, data->width,
 				data->height);
-		gs_texrender_end(data->output_texrender);
-	}
-	gs_blend_state_pop();
-
-	if (source_render) {
-		gs_texrender_destroy(source_render);
-	}
-}
-
-void render_fill_stroke_filter(stroke_filter_data_t *data)
-{
-	gs_effect_t *effect = data->effect_fill_stroke;
-	gs_texture_t *stroke_mask_texture =
-		gs_texrender_get_texture(data->stroke_mask);
-	gs_texture_t *image_texture =
-		gs_texrender_get_texture(data->input_texrender);
-
-	if (!effect || !image_texture || !stroke_mask_texture) {
-		return;
-	}
-
-	data->output_texrender =
-		create_or_reset_texrender(data->output_texrender);
-
-	if (data->param_fill_stroke_image) {
-		gs_effect_set_texture(data->param_fill_stroke_image,
-				      image_texture);
-	}
-
-	if (data->param_fill_stroke_stroke_mask) {
-		gs_effect_set_texture(data->param_fill_stroke_stroke_mask,
-				      stroke_mask_texture);
-	}
-
-	if (data->param_fill_stroke_fill_behind) {
-		gs_effect_set_float(data->param_fill_stroke_fill_behind,
-				    data->fill ? 0.0f : 1.0f);
-	}
-
-	bool source_available = (data->fill_type == STROKE_FILL_TYPE_SOURCE) &&
-				data->fill_source_source;
-
-	gs_texrender_t *source_render = NULL;
-	if (data->fill_type == STROKE_FILL_TYPE_SOURCE && source_available) {
-		obs_source_t *source =
-			data->fill_source_source
-				? obs_weak_source_get_source(
-					  data->fill_source_source)
-				: NULL;
-		if (!source) {
-			return;
-		}
-
-		const enum gs_color_space preferred_spaces[] = {
-			GS_CS_SRGB,
-			GS_CS_SRGB_16F,
-			GS_CS_709_EXTENDED,
-		};
-		const enum gs_color_space space = obs_source_get_color_space(
-			source, OBS_COUNTOF(preferred_spaces),
-			preferred_spaces);
-		const enum gs_color_format format =
-			gs_get_format_from_space(space);
-
-		// Set up a tex renderer for source
-		source_render = gs_texrender_create(format, GS_ZS_NONE);
-		uint32_t base_width = obs_source_get_width(source);
-		uint32_t base_height = obs_source_get_height(source);
-		gs_blend_state_push();
-		gs_blend_function(GS_BLEND_ONE, GS_BLEND_ZERO);
-		if (gs_texrender_begin_with_color_space(
-			    source_render, base_width, base_height, space)) {
-			const float w = (float)base_width;
-			const float h = (float)base_height;
-			struct vec4 clear_color;
-
-			vec4_zero(&clear_color);
-			gs_clear(GS_CLEAR_COLOR, &clear_color, 0.0f, 0);
-			gs_ortho(0.0f, w, 0.0f, h, -100.0f, 100.0f);
-
-			obs_source_video_render(source);
-			gs_texrender_end(source_render);
-		}
-		gs_blend_state_pop();
-		obs_source_release(source);
-		gs_texture_t *source_texture =
-			gs_texrender_get_texture(source_render);
-		if (data->param_fill_stroke_fill_source) {
-			gs_effect_set_texture(
-				data->param_fill_stroke_fill_source,
-				source_texture);
-		}
-	} else if(data->fill_type == STROKE_FILL_TYPE_SOURCE && !source_available) {
-		if(data->param_fill_stroke_fill_color) {
-			struct vec4 clear_color;
-			vec4_zero(&clear_color);
-			gs_effect_set_vec4(data->param_fill_stroke_fill_color, &clear_color);
-		}
-	} else if (data->fill_type == STROKE_FILL_TYPE_COLOR) {
-		if (data->param_fill_stroke_fill_color) {
-			gs_effect_set_vec4(data->param_fill_stroke_fill_color,
-					   &data->stroke_color);
-		}
-	}
-
-	bool fill_color = (data->fill_type == STROKE_FILL_TYPE_COLOR) ||
-			  (data->fill_type == STROKE_FILL_TYPE_SOURCE &&
-			   !source_available);
-	const char *fill_type =
-		data->fill_type ==  fill_color ? "FilterColor"
-		: data->fill_type == STROKE_FILL_TYPE_SOURCE ? "FilterSource"
-							     : "FilterSource";
-
-	const char *position = data->stroke_position == STROKE_POSITION_OUTER
-				       ? "Outer"
-				       : "Inner";
-
-	char shader_id[100] = "";
-	snprintf(shader_id, sizeof(shader_id), "%s%s", fill_type, position);
-
-	set_blending_parameters();
-
-	if (gs_texrender_begin(data->output_texrender, data->width,
-			       data->height)) {
-		gs_ortho(0.0f, (float)data->width, 0.0f, (float)data->height,
-			 -100.0f, 100.0f);
-		while (gs_effect_loop(effect, shader_id))
-			gs_draw_sprite(image_texture, 0, data->width,
-				       data->height);
 		gs_texrender_end(data->output_texrender);
 	}
 	gs_blend_state_pop();

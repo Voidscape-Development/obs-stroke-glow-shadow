@@ -37,8 +37,6 @@ endif()
 target_sources(
   ${PROJECT_NAME}
   PRIVATE
-    src/anti-alias.c
-    src/anti-alias.h
     src/glow.c
     src/glow.h
     src/obs-glow-filter.c
