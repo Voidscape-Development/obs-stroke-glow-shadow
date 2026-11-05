@@ -1,13 +1,11 @@
 #include "dual-kawase.h"
 
-static void
-load_dual_kawase_down_sample_effect(alpha_blur_data_t *filter);
+static void load_dual_kawase_down_sample_effect(alpha_blur_data_t *filter);
 static void load_dual_kawase_up_sample_effect(alpha_blur_data_t *filter);
 static void load_dual_kawase_mix_effect(alpha_blur_data_t *filter);
 
-static gs_texture_t *mix_textures(alpha_blur_data_t *data,
-				  gs_texture_t *base, gs_texture_t *residual,
-				  float ratio);
+static gs_texture_t *mix_textures(alpha_blur_data_t *data, gs_texture_t *base,
+				  gs_texture_t *residual, float ratio);
 static gs_texture_t *down_sample(alpha_blur_data_t *data,
 				 gs_texture_t *input_texture, int divisor,
 				 float ratio, uint32_t width, uint32_t height,
@@ -106,7 +104,7 @@ static gs_texture_t *up_sample(alpha_blur_data_t *data,
 }
 
 static gs_texture_t *mix_textures(alpha_blur_data_t *data, gs_texture_t *base,
-			   gs_texture_t *residual, float ratio)
+				  gs_texture_t *residual, float ratio)
 {
 	gs_effect_t *effect = data->effect_dual_kawase_mix;
 	// Swap renderers

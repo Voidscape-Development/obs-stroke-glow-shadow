@@ -32,7 +32,7 @@ extern void texrender_set_texture(gs_texture_t *source, gs_texrender_t *dest);
 // video_render), so it is never released while the render code is using it.
 struct source_ref {
 	pthread_mutex_t mutex;
-	struct dstr name; // protected by mutex
+	struct dstr name;  // protected by mutex
 	bool name_changed; // protected by mutex
 
 	// Graphics thread only.

@@ -19,8 +19,10 @@ enum stroke_fill_type {
 
 #define STROKE_POSITION_OUTER_LABEL "StrokeFilter.StrokePositionOuter"
 #define STROKE_POSITION_INNER_LABEL "StrokeFilter.StrokePositionInner"
-#define STROKE_POSITION_OUTER_CONTOUR_LABEL "StrokeFilter.StrokePositionOuterContour"
-#define STROKE_POSITION_INNER_CONTOUR_LABEL "StrokeFilter.StrokePositionInnerContour"
+#define STROKE_POSITION_OUTER_CONTOUR_LABEL \
+	"StrokeFilter.StrokePositionOuterContour"
+#define STROKE_POSITION_INNER_CONTOUR_LABEL \
+	"StrokeFilter.StrokePositionInnerContour"
 
 enum stroke_position {
 	STROKE_POSITION_OUTER = 1,
@@ -52,13 +54,13 @@ struct stroke_filter_data {
 	bool input_rendered;
 	gs_texrender_t *input_texrender;
 	bool output_rendered;
-	gs_texrender_t* output_texrender;
+	gs_texrender_t *output_texrender;
 	// Frame Buffers
 	// Jump flood ping-pong buffers (RG32F nearest edge point per pixel).
-	gs_texrender_t* buffer_a;
-	gs_texrender_t* buffer_b;
+	gs_texrender_t *buffer_a;
+	gs_texrender_t *buffer_b;
 	// The finished distance field: one of the two buffers above, not owned.
-	gs_texrender_t* distance_field;
+	gs_texrender_t *distance_field;
 
 	bool input_texture_generated;
 	bool rendering;
@@ -110,24 +112,24 @@ struct stroke_filter_data {
 	struct vec2 mul_val;
 	struct vec2 add_val;
 
-	gs_eparam_t* param_jump_flood_threshold;
-	gs_eparam_t* param_stroke_uv_size;
-	gs_eparam_t* param_jump_flood_offset;
-	gs_eparam_t* param_jump_flood_stroke_offset;
-	gs_eparam_t* param_jump_flood_stroke_extent;
-	gs_eparam_t* param_jump_flood_overlay;
-	gs_eparam_t* param_jump_flood_stroke_color;
-	gs_eparam_t* param_jump_flood_fill_source;
-	gs_eparam_t* param_jump_flood_contour_offset;
-	gs_eparam_t* param_jump_flood_contour_spacing;
-	gs_eparam_t* param_jump_flood_contour_falloff_start;
-	gs_eparam_t* param_jump_flood_contour_falloff_end;
-	gs_eparam_t* param_jump_flood_contour_spacing_power;
-	gs_eparam_t* param_distance_field;
-	gs_eparam_t* param_infill;
+	gs_eparam_t *param_jump_flood_threshold;
+	gs_eparam_t *param_stroke_uv_size;
+	gs_eparam_t *param_jump_flood_offset;
+	gs_eparam_t *param_jump_flood_stroke_offset;
+	gs_eparam_t *param_jump_flood_stroke_extent;
+	gs_eparam_t *param_jump_flood_overlay;
+	gs_eparam_t *param_jump_flood_stroke_color;
+	gs_eparam_t *param_jump_flood_fill_source;
+	gs_eparam_t *param_jump_flood_contour_offset;
+	gs_eparam_t *param_jump_flood_contour_spacing;
+	gs_eparam_t *param_jump_flood_contour_falloff_start;
+	gs_eparam_t *param_jump_flood_contour_falloff_end;
+	gs_eparam_t *param_jump_flood_contour_spacing_power;
+	gs_eparam_t *param_distance_field;
+	gs_eparam_t *param_infill;
 
-	gs_eparam_t* param_mul_val;
-	gs_eparam_t* param_add_val;
+	gs_eparam_t *param_mul_val;
+	gs_eparam_t *param_add_val;
 
 	// Callback Functions
 	void (*video_render)(stroke_filter_data_t *filter);

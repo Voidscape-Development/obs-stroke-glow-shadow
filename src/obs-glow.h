@@ -70,7 +70,7 @@ struct glow_filter_data {
 	gs_texrender_t *input_texrender;
 	bool output_rendered;
 	gs_texrender_t *output_texrender;
-	gs_texrender_t* alpha_mask_texrender;
+	gs_texrender_t *alpha_mask_texrender;
 	// Frame Buffers
 
 	bool input_texture_generated;
@@ -124,8 +124,8 @@ struct glow_filter_data {
 	gs_eparam_t *param_glow_fill_behind;
 	gs_eparam_t *param_offset_texel;
 
-	gs_eparam_t* param_mul_val;
-	gs_eparam_t* param_add_val;
+	gs_eparam_t *param_mul_val;
+	gs_eparam_t *param_add_val;
 
-	gs_eparam_t* param_threshold;
+	gs_eparam_t *param_threshold;
 };

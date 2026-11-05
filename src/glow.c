@@ -167,9 +167,9 @@ void glow_render_padded_input(glow_filter_data_t *data)
 			gs_effect_set_vec2(data->param_add_val, &data->add_val);
 		}
 
-		if (gs_texrender_begin_with_color_space(data->input_texrender,
-							data->width, data->height,
-							source_space)) {
+		if (gs_texrender_begin_with_color_space(
+			    data->input_texrender, data->width, data->height,
+			    source_space)) {
 
 			gs_blend_state_push();
 			gs_reset_blend_state();
@@ -194,9 +194,10 @@ void glow_render_padded_input(glow_filter_data_t *data)
 void glow_render_cropped_output(glow_filter_data_t *data)
 {
 	gs_effect_t *effect = data->effect_glow;
-	gs_texture_t *texture = data->output_texrender
-		? gs_texrender_get_texture(data->output_texrender)
-		: NULL;
+	gs_texture_t *texture =
+		data->output_texrender
+			? gs_texrender_get_texture(data->output_texrender)
+			: NULL;
 	if (!effect || !texture) {
 		if (data->is_filter) {
 			obs_source_skip_video_filter(data->context);
@@ -312,8 +313,8 @@ void glow_render_cropped_output(glow_filter_data_t *data)
 					      -(float)data->pad_t, 0.0f);
 		}
 		const char *technique = "DrawOutput";
-		obs_source_process_filter_tech_end(data->context, effect,
-						   width, height, technique);
+		obs_source_process_filter_tech_end(data->context, effect, width,
+						   height, technique);
 		gs_matrix_pop();
 	}
 }

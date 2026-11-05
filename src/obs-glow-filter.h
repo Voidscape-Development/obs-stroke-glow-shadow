@@ -32,9 +32,9 @@ glow_filter_get_color_space(void *data, size_t count,
 static void load_effects(glow_filter_data_t *filter);
 static bool setting_fill_type_modified(obs_properties_t *props,
 				       obs_property_t *p, obs_data_t *settings);
-static bool setting_glow_position_modified(void *data,
-					   obs_properties_t *props,
+static bool setting_glow_position_modified(void *data, obs_properties_t *props,
 					   obs_property_t *p,
 					   obs_data_t *settings);
-static bool setting_glow_padding_modified(obs_properties_t* props,
-	obs_property_t* p, obs_data_t* settings);
+static bool setting_glow_padding_modified(obs_properties_t *props,
+					  obs_property_t *p,
+					  obs_data_t *settings);

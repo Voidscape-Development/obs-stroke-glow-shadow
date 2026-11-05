@@ -131,9 +131,9 @@ char *load_shader_from_file(const char *file_name)
 			char *abs_include_path =
 				os_get_abs_path_ptr(include_path.array);
 			char *file_contents =
-				abs_include_path
-					? load_shader_from_file(abs_include_path)
-					: NULL;
+				abs_include_path ? load_shader_from_file(
+							   abs_include_path)
+						 : NULL;
 			if (file_contents) {
 				dstr_cat(&shader_file, file_contents);
 			} else {
@@ -269,8 +269,7 @@ void source_ref_tick(struct source_ref *ref, float seconds)
 	}
 	ref->retry_timer = SOURCE_REF_RETRY_SECONDS;
 
-	obs_source_t *source =
-		obs_get_source_by_name(ref->resolved_name.array);
+	obs_source_t *source = obs_get_source_by_name(ref->resolved_name.array);
 	if (source) {
 		ref->weak = obs_source_get_weak_source(source);
 		obs_source_release(source);

@@ -7,41 +7,44 @@
 // sources saved by earlier versions are loaded as version 0, which keeps the
 // old defaults so existing scenes don't change; version 0 is hidden from the
 // add filter/source menus.
-#define STROKE_SOURCE_INFO(info_id, info_version, extra_flags, defaults)     \
-	{                                                                    \
-		.id = info_id, .version = info_version,                      \
-		.type = OBS_SOURCE_TYPE_INPUT,                               \
-		.output_flags = OBS_SOURCE_VIDEO | OBS_SOURCE_CUSTOM_DRAW |  \
-				OBS_SOURCE_SRGB | (extra_flags),             \
-		.get_name = stroke_filter_name,                              \
-		.create = stroke_filter_create,                              \
-		.destroy = stroke_filter_destroy,                            \
-		.update = stroke_filter_update,                              \
-		.video_render = stroke_filter_video_render,                  \
-		.video_tick = stroke_filter_video_tick,                      \
-		.get_width = stroke_filter_width,                            \
-		.get_height = stroke_filter_height,                          \
-		.get_properties = stroke_source_properties,                  \
-		.get_defaults = defaults, .icon_type = OBS_ICON_TYPE_COLOR,  \
+#define STROKE_SOURCE_INFO(info_id, info_version, extra_flags, defaults)    \
+	{                                                                   \
+		.id = info_id,                                              \
+		.version = info_version,                                    \
+		.type = OBS_SOURCE_TYPE_INPUT,                              \
+		.output_flags = OBS_SOURCE_VIDEO | OBS_SOURCE_CUSTOM_DRAW | \
+				OBS_SOURCE_SRGB | (extra_flags),            \
+		.get_name = stroke_filter_name,                             \
+		.create = stroke_filter_create,                             \
+		.destroy = stroke_filter_destroy,                           \
+		.update = stroke_filter_update,                             \
+		.video_render = stroke_filter_video_render,                 \
+		.video_tick = stroke_filter_video_tick,                     \
+		.get_width = stroke_filter_width,                           \
+		.get_height = stroke_filter_height,                         \
+		.get_properties = stroke_source_properties,                 \
+		.get_defaults = defaults,                                   \
+		.icon_type = OBS_ICON_TYPE_COLOR,                           \
 	}
 
-#define STROKE_FILTER_INFO(info_id, info_version, extra_flags, defaults)     \
-	{                                                                    \
-		.id = info_id, .version = info_version,                      \
-		.type = OBS_SOURCE_TYPE_FILTER,                              \
-		.output_flags = OBS_SOURCE_VIDEO | OBS_SOURCE_SRGB |         \
-				OBS_SOURCE_CUSTOM_DRAW | (extra_flags),      \
-		.get_name = stroke_filter_name,                              \
-		.create = stroke_filter_create,                              \
-		.destroy = stroke_filter_destroy,                            \
-		.update = stroke_filter_update,                              \
-		.video_render = stroke_filter_video_render,                  \
-		.video_tick = stroke_filter_video_tick,                      \
-		.video_get_color_space = stroke_filter_get_color_space,      \
-		.get_width = stroke_filter_width,                            \
-		.get_height = stroke_filter_height,                          \
-		.get_properties = stroke_filter_properties,                  \
-		.get_defaults = defaults,                                    \
+#define STROKE_FILTER_INFO(info_id, info_version, extra_flags, defaults) \
+	{                                                                \
+		.id = info_id,                                           \
+		.version = info_version,                                 \
+		.type = OBS_SOURCE_TYPE_FILTER,                          \
+		.output_flags = OBS_SOURCE_VIDEO | OBS_SOURCE_SRGB |     \
+				OBS_SOURCE_CUSTOM_DRAW | (extra_flags),  \
+		.get_name = stroke_filter_name,                          \
+		.create = stroke_filter_create,                          \
+		.destroy = stroke_filter_destroy,                        \
+		.update = stroke_filter_update,                          \
+		.video_render = stroke_filter_video_render,              \
+		.video_tick = stroke_filter_video_tick,                  \
+		.video_get_color_space = stroke_filter_get_color_space,  \
+		.get_width = stroke_filter_width,                        \
+		.get_height = stroke_filter_height,                      \
+		.get_properties = stroke_filter_properties,              \
+		.get_defaults = defaults,                                \
 	}
 
 struct obs_source_info obs_stroke_source = STROKE_SOURCE_INFO(
@@ -142,39 +145,65 @@ static void stroke_filter_update(void *data, obs_data_t *settings)
 		(float)obs_data_get_double(settings, "stroke_offset");
 
 	vec4_from_rgba(&filter->stroke_color,
-		(uint32_t)obs_data_get_int(settings,
-			"stroke_fill_color"));
+		       (uint32_t)obs_data_get_int(settings,
+						  "stroke_fill_color"));
 
-	filter->fill_type =
-		(enum stroke_fill_type)obs_data_get_int(settings, "stroke_fill_type");
-	filter->stroke_position =
-		(enum stroke_position)obs_data_get_int(settings, "stroke_position");
-	filter->contour_spacing = (float)obs_data_get_double(settings, "contour_spacing");
-	filter->contour_offset = (float)obs_data_get_double(settings, "contour_offset");
-	filter->contour_falloff_start = (float)obs_data_get_double(settings, "contour_falloff_start");
-	filter->contour_falloff_end = (float)obs_data_get_double(settings, "contour_falloff_end");
-	filter->contour_spacing_power = (float)obs_data_get_double(settings, "contour_spacing_power");
+	filter->fill_type = (enum stroke_fill_type)obs_data_get_int(
+		settings, "stroke_fill_type");
+	filter->stroke_position = (enum stroke_position)obs_data_get_int(
+		settings, "stroke_position");
+	filter->contour_spacing =
+		(float)obs_data_get_double(settings, "contour_spacing");
+	filter->contour_offset =
+		(float)obs_data_get_double(settings, "contour_offset");
+	filter->contour_falloff_start =
+		(float)obs_data_get_double(settings, "contour_falloff_start");
+	filter->contour_falloff_end =
+		(float)obs_data_get_double(settings, "contour_falloff_end");
+	filter->contour_spacing_power =
+		(float)obs_data_get_double(settings, "contour_spacing_power");
 
-	filter->padding_amount = obs_data_get_int(settings, "stroke_padding") == PADDING_MANUAL ? (uint32_t)obs_data_get_int(settings, "padding_amount") : 0;
+	filter->padding_amount =
+		obs_data_get_int(settings, "stroke_padding") == PADDING_MANUAL
+			? (uint32_t)obs_data_get_int(settings, "padding_amount")
+			: 0;
 
-	if (obs_data_get_int(settings, "stroke_padding") == PADDING_AUTO && filter->stroke_position == STROKE_POSITION_OUTER) {
+	if (obs_data_get_int(settings, "stroke_padding") == PADDING_AUTO &&
+	    filter->stroke_position == STROKE_POSITION_OUTER) {
 		// Round up and leave a pixel for the anti-aliased outer edge.
-		filter->padding_amount = (uint32_t)ceilf(filter->stroke_size + filter->stroke_offset) + 1;
+		filter->padding_amount =
+			(uint32_t)ceilf(filter->stroke_size +
+					filter->stroke_offset) +
+			1;
 	}
 
 	filter->ignore_source_border =
 		obs_data_get_bool(settings, "ignore_source_border");
 
-	filter->overflow =
-		obs_data_get_int(settings, "stroke_padding") != PADDING_NONE &&
-		obs_data_get_bool(settings, "padding_overflow");
+	filter->overflow = obs_data_get_int(settings, "stroke_padding") !=
+				   PADDING_NONE &&
+			   obs_data_get_bool(settings, "padding_overflow");
 
-	bool is_inner = filter->stroke_position == STROKE_POSITION_INNER || filter->stroke_position == STROKE_POSITION_INNER_CONTOUR;
+	bool is_inner = filter->stroke_position == STROKE_POSITION_INNER ||
+			filter->stroke_position ==
+				STROKE_POSITION_INNER_CONTOUR;
 
 	if (is_inner) {
-		filter->jump_flood_threshold = (float)fmin(fmax(obs_data_get_double(settings, "jump_flood_threshold_inner"), 0.01), 99.99) / 100.0f;
+		filter->jump_flood_threshold =
+			(float)fmin(fmax(obs_data_get_double(
+						 settings,
+						 "jump_flood_threshold_inner"),
+					 0.01),
+				    99.99) /
+			100.0f;
 	} else {
-		filter->jump_flood_threshold = (float)fmin(fmax(obs_data_get_double(settings, "jump_flood_threshold_outer"), 0.01), 99.99) / 100.0f;
+		filter->jump_flood_threshold =
+			(float)fmin(fmax(obs_data_get_double(
+						 settings,
+						 "jump_flood_threshold_outer"),
+					 0.01),
+				    99.99) /
+			100.0f;
 	}
 
 	if (!filter->ignore_source_border && is_inner) {
@@ -182,14 +211,13 @@ static void stroke_filter_update(void *data, obs_data_t *settings)
 		filter->pad_t = 1;
 		filter->pad_l = 1;
 		filter->pad_r = 1;
-	}
-	else if (filter->stroke_position == STROKE_POSITION_OUTER || filter->stroke_position == STROKE_POSITION_OUTER_CONTOUR) {
+	} else if (filter->stroke_position == STROKE_POSITION_OUTER ||
+		   filter->stroke_position == STROKE_POSITION_OUTER_CONTOUR) {
 		filter->pad_b = filter->padding_amount;
 		filter->pad_t = filter->padding_amount;
 		filter->pad_l = filter->padding_amount;
 		filter->pad_r = filter->padding_amount;
-	}
-	else {
+	} else {
 		filter->pad_b = 0;
 		filter->pad_t = 0;
 		filter->pad_l = 0;
@@ -199,10 +227,12 @@ static void stroke_filter_update(void *data, obs_data_t *settings)
 	filter->fill = obs_data_get_bool(settings, "fill");
 	// Resolved on the graphics thread, in video_tick.
 	source_ref_set_name(&filter->fill_ref,
-			    obs_data_get_string(settings, "stroke_fill_source"));
+			    obs_data_get_string(settings,
+						"stroke_fill_source"));
 	if (filter->is_source) {
 		source_ref_set_name(&filter->input_ref,
-				    obs_data_get_string(settings, "stroke_source"));
+				    obs_data_get_string(settings,
+							"stroke_source"));
 	}
 
 	if (filter->reload) {
@@ -249,10 +279,12 @@ static void stroke_filter_video_render(void *data, gs_effect_t *effect)
 	// 2. Find the nearest edge of the source for every pixel. Contours can
 	//    extend across the whole source; strokes only out to their extent.
 	render_jf_seed(filter);
-	const bool contour = filter->stroke_position == STROKE_POSITION_OUTER_CONTOUR ||
-			     filter->stroke_position == STROKE_POSITION_INNER_CONTOUR;
-	const float extent = contour ? fmaxf((float)filter->width, (float)filter->height)
-				     : filter->stroke_offset + filter->stroke_size;
+	const bool contour =
+		filter->stroke_position == STROKE_POSITION_OUTER_CONTOUR ||
+		filter->stroke_position == STROKE_POSITION_INNER_CONTOUR;
+	const float extent =
+		contour ? fmaxf((float)filter->width, (float)filter->height)
+			: filter->stroke_offset + filter->stroke_size;
 	render_jf_passes(filter, extent);
 
 	render_jf_distance(filter);
@@ -293,16 +325,18 @@ static obs_properties_t *properties(void *data, bool is_source)
 	obs_property_list_add_int(stroke_position_list,
 				  obs_module_text(STROKE_POSITION_INNER_LABEL),
 				  STROKE_POSITION_INNER);
-	obs_property_list_add_int(stroke_position_list,
-				  obs_module_text(STROKE_POSITION_OUTER_CONTOUR_LABEL),
-		                  STROKE_POSITION_OUTER_CONTOUR);
-	obs_property_list_add_int(stroke_position_list,
-				  obs_module_text(STROKE_POSITION_INNER_CONTOUR_LABEL),
-				  STROKE_POSITION_INNER_CONTOUR);
+	obs_property_list_add_int(
+		stroke_position_list,
+		obs_module_text(STROKE_POSITION_OUTER_CONTOUR_LABEL),
+		STROKE_POSITION_OUTER_CONTOUR);
+	obs_property_list_add_int(
+		stroke_position_list,
+		obs_module_text(STROKE_POSITION_INNER_CONTOUR_LABEL),
+		STROKE_POSITION_INNER_CONTOUR);
 
-
-	obs_property_set_modified_callback2(
-		stroke_position_list, setting_stroke_position_modified, (void*)is_source);
+	obs_property_set_modified_callback2(stroke_position_list,
+					    setting_stroke_position_modified,
+					    (void *)is_source);
 
 	obs_properties_add_bool(
 		props, "ignore_source_border",
@@ -311,31 +345,29 @@ static obs_properties_t *properties(void *data, bool is_source)
 	obs_properties_add_bool(props, "fill",
 				obs_module_text("StrokeFilter.FillSource"));
 
-	obs_property_t* stroke_padding_list = obs_properties_add_list(
+	obs_property_t *stroke_padding_list = obs_properties_add_list(
 		props, "stroke_padding",
-		obs_module_text("StrokeFilter.Padding"),
-		OBS_COMBO_TYPE_LIST, OBS_COMBO_FORMAT_INT);
+		obs_module_text("StrokeFilter.Padding"), OBS_COMBO_TYPE_LIST,
+		OBS_COMBO_FORMAT_INT);
 
 	obs_property_list_add_int(stroke_padding_list,
-		obs_module_text(PADDING_NONE_LABEL),
-		PADDING_NONE);
+				  obs_module_text(PADDING_NONE_LABEL),
+				  PADDING_NONE);
 
 	obs_property_list_add_int(stroke_padding_list,
-		obs_module_text(PADDING_AUTO_LABEL),
-		PADDING_AUTO);
+				  obs_module_text(PADDING_AUTO_LABEL),
+				  PADDING_AUTO);
 
 	obs_property_list_add_int(stroke_padding_list,
-		obs_module_text(PADDING_MANUAL_LABEL),
-		PADDING_MANUAL);
+				  obs_module_text(PADDING_MANUAL_LABEL),
+				  PADDING_MANUAL);
 
+	obs_property_set_modified_callback(stroke_padding_list,
+					   setting_stroke_padding_modified);
 
-	obs_property_set_modified_callback(
-		stroke_padding_list, setting_stroke_padding_modified);
-
-	obs_property_t * p = obs_properties_add_int_slider(
+	obs_property_t *p = obs_properties_add_int_slider(
 		props, "padding_amount",
-		obs_module_text("StrokeFilter.Padding.Amount"), 0, 4000, 1
-	);
+		obs_module_text("StrokeFilter.Padding.Amount"), 0, 4000, 1);
 
 	obs_property_float_set_suffix(p, "px");
 
@@ -346,14 +378,14 @@ static obs_properties_t *properties(void *data, bool is_source)
 
 	p = obs_properties_add_float_slider(
 		props, "jump_flood_threshold_inner",
-		obs_module_text("StrokeFilter.MaskThreshold"), 0.0, 100.0, 0.01
-	);
+		obs_module_text("StrokeFilter.MaskThreshold"), 0.0, 100.0,
+		0.01);
 	obs_property_float_set_suffix(p, "%");
 
 	p = obs_properties_add_float_slider(
 		props, "jump_flood_threshold_outer",
-		obs_module_text("StrokeFilter.MaskThreshold"), 0.0, 100.0, 0.01
-	);
+		obs_module_text("StrokeFilter.MaskThreshold"), 0.0, 100.0,
+		0.01);
 	obs_property_float_set_suffix(p, "%");
 
 	p = obs_properties_add_float_slider(
@@ -368,27 +400,32 @@ static obs_properties_t *properties(void *data, bool is_source)
 
 	p = obs_properties_add_float_slider(
 		props, "contour_spacing",
-		obs_module_text("StrokeFilter.ContourSpacing"), 0.0, 2000.0, 1.0);
+		obs_module_text("StrokeFilter.ContourSpacing"), 0.0, 2000.0,
+		1.0);
 	obs_property_float_set_suffix(p, "px");
 
 	obs_properties_add_float_slider(
 		props, "contour_spacing_power",
-		obs_module_text("StrokeFilter.ContourSpacingPower"), 0.01, 2.0, 0.01);
+		obs_module_text("StrokeFilter.ContourSpacingPower"), 0.01, 2.0,
+		0.01);
 
-	obs_property_t* c_offset = obs_properties_add_float_slider(
+	obs_property_t *c_offset = obs_properties_add_float_slider(
 		props, "contour_offset",
-		obs_module_text("StrokeFilter.ContourOffset"), -500.0, 500.0, 0.01);
+		obs_module_text("StrokeFilter.ContourOffset"), -500.0, 500.0,
+		0.01);
 
 	obs_property_float_set_suffix(c_offset, "%");
 
 	p = obs_properties_add_float_slider(
 		props, "contour_falloff_start",
-		obs_module_text("StrokeFilter.ContourFalloffStart"), 0.0, 2000.0, 1.0);
+		obs_module_text("StrokeFilter.ContourFalloffStart"), 0.0,
+		2000.0, 1.0);
 	obs_property_float_set_suffix(p, "px");
 
 	p = obs_properties_add_float_slider(
 		props, "contour_falloff_end",
-		obs_module_text("StrokeFilter.ContourFalloffEnd"), 0.0, 2000.0, 1.0);
+		obs_module_text("StrokeFilter.ContourFalloffEnd"), 0.0, 2000.0,
+		1.0);
 	obs_property_float_set_suffix(p, "px");
 
 	obs_property_t *stroke_fill_method_list = obs_properties_add_list(
@@ -435,11 +472,13 @@ static obs_properties_t *properties(void *data, bool is_source)
 	return props;
 }
 
-static obs_properties_t *stroke_filter_properties(void *data) {
+static obs_properties_t *stroke_filter_properties(void *data)
+{
 	return properties(data, false);
 }
 
-static obs_properties_t *stroke_source_properties(void *data) {
+static obs_properties_t *stroke_source_properties(void *data)
+{
 	return properties(data, true);
 }
 
@@ -468,10 +507,11 @@ static void stroke_filter_video_tick(void *data, float seconds)
 	obs_source_t *owner = filter->is_filter
 				      ? obs_filter_get_parent(filter->context)
 				      : filter->context;
-	const bool enabled =
-		!filter->is_filter || obs_source_enabled(filter->context);
+	const bool enabled = !filter->is_filter ||
+			     obs_source_enabled(filter->context);
 	source_ref_update_activation(&filter->fill_ref, owner,
-				     enabled && filter->fill_type == STROKE_FILL_TYPE_SOURCE,
+				     enabled && filter->fill_type ==
+							STROKE_FILL_TYPE_SOURCE,
 				     seconds);
 	if (filter->is_source) {
 		source_ref_update_activation(&filter->input_ref, owner, true,
@@ -501,13 +541,16 @@ static void stroke_filter_video_tick(void *data, float seconds)
 	// Inner strokes only pad to treat the source border as an edge, and
 	// crop that padding back off when drawing.
 	const bool inner = filter->stroke_position == STROKE_POSITION_INNER ||
-			   filter->stroke_position == STROKE_POSITION_INNER_CONTOUR;
+			   filter->stroke_position ==
+				   STROKE_POSITION_INNER_CONTOUR;
 	if (inner || filter->overflow || !base_width || !base_height) {
 		filter->output_width = base_width;
 		filter->output_height = base_height;
 	} else {
-		filter->output_width = base_width + filter->pad_l + filter->pad_r;
-		filter->output_height = base_height + filter->pad_t + filter->pad_b;
+		filter->output_width =
+			base_width + filter->pad_l + filter->pad_r;
+		filter->output_height =
+			base_height + filter->pad_t + filter->pad_b;
 	}
 	filter->rendered = false;
 }
@@ -527,8 +570,10 @@ static void stroke_filter_defaults(obs_data_t *settings)
 	obs_data_set_default_double(settings, "contour_spacing", 10.0);
 	obs_data_set_default_double(settings, "contour_offset", 0.0);
 	obs_data_set_default_double(settings, "contour_spacing_power", 1.0);
-	obs_data_set_default_double(settings, "jump_flood_threshold_outer", 100.0);
-	obs_data_set_default_double(settings, "jump_flood_threshold_inner", 0.0);
+	obs_data_set_default_double(settings, "jump_flood_threshold_outer",
+				    100.0);
+	obs_data_set_default_double(settings, "jump_flood_threshold_inner",
+				    0.0);
 	obs_data_set_default_double(settings, "contour_falloff_start", 0.0);
 	obs_data_set_default_double(settings, "contour_falloff_end", 2000.0);
 }
@@ -552,7 +597,9 @@ static bool setting_fill_type_modified(obs_properties_t *props,
 				       obs_property_t *p, obs_data_t *settings)
 {
 	UNUSED_PARAMETER(p);
-	enum stroke_fill_type fill_type = (enum stroke_fill_type)obs_data_get_int(settings, "stroke_fill_type");
+	enum stroke_fill_type fill_type =
+		(enum stroke_fill_type)obs_data_get_int(settings,
+							"stroke_fill_type");
 	switch (fill_type) {
 	case STROKE_FILL_TYPE_COLOR:
 		setting_visibility("stroke_fill_color", true, props);
@@ -573,14 +620,18 @@ static bool setting_fill_type_modified(obs_properties_t *props,
 	return true;
 }
 
-static bool setting_stroke_padding_modified(obs_properties_t* props,
-	obs_property_t* p, obs_data_t* settings)
+static bool setting_stroke_padding_modified(obs_properties_t *props,
+					    obs_property_t *p,
+					    obs_data_t *settings)
 {
 	UNUSED_PARAMETER(p);
-	enum padding_type paddingType = (enum padding_type)obs_data_get_int(settings, "stroke_padding");
+	enum padding_type paddingType =
+		(enum padding_type)obs_data_get_int(settings, "stroke_padding");
 
-	setting_visibility("padding_amount", paddingType == PADDING_MANUAL, props);
-	setting_visibility("padding_overflow", paddingType != PADDING_NONE, props);
+	setting_visibility("padding_amount", paddingType == PADDING_MANUAL,
+			   props);
+	setting_visibility("padding_overflow", paddingType != PADDING_NONE,
+			   props);
 	return true;
 }
 
@@ -592,8 +643,10 @@ static bool setting_stroke_position_modified(void *data,
 	UNUSED_PARAMETER(p);
 	bool is_source = data;
 
-	enum stroke_position position = (enum stroke_position)obs_data_get_int(settings, "stroke_position");
-	enum padding_type paddingType = (enum padding_type)obs_data_get_int(settings, "stroke_padding");
+	enum stroke_position position = (enum stroke_position)obs_data_get_int(
+		settings, "stroke_position");
+	enum padding_type paddingType =
+		(enum padding_type)obs_data_get_int(settings, "stroke_padding");
 	switch (position) {
 	case STROKE_POSITION_INNER:
 		setting_visibility("ignore_source_border", true, props);
@@ -622,8 +675,10 @@ static bool setting_stroke_position_modified(void *data,
 		setting_visibility("stroke_offset", true, props);
 		setting_visibility("fill", is_source, props);
 		setting_visibility("stroke_padding", true, props);
-		setting_visibility("padding_amount", paddingType == PADDING_MANUAL, props);
-		setting_visibility("padding_overflow", paddingType != PADDING_NONE, props);
+		setting_visibility("padding_amount",
+				   paddingType == PADDING_MANUAL, props);
+		setting_visibility("padding_overflow",
+				   paddingType != PADDING_NONE, props);
 		break;
 	case STROKE_POSITION_OUTER_CONTOUR:
 		setting_visibility("ignore_source_border", false, props);
@@ -637,8 +692,10 @@ static bool setting_stroke_position_modified(void *data,
 		setting_visibility("stroke_offset", false, props);
 		setting_visibility("fill", false, props);
 		setting_visibility("stroke_padding", true, props);
-		setting_visibility("padding_amount", paddingType == PADDING_MANUAL, props);
-		setting_visibility("padding_overflow", paddingType != PADDING_NONE, props);
+		setting_visibility("padding_amount",
+				   paddingType == PADDING_MANUAL, props);
+		setting_visibility("padding_overflow",
+				   paddingType != PADDING_NONE, props);
 		break;
 	case STROKE_POSITION_INNER_CONTOUR:
 		setting_visibility("ignore_source_border", true, props);
