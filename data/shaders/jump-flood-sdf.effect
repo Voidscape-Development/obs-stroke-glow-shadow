@@ -10,7 +10,7 @@ float4 PSCrop(VertData v_in) : TARGET
 {
 	float4 rgba = image.Sample(padSampler, v_in.uv);
 	rgba.rgb *= (rgba.a > 0.) ? (1. / rgba.a) : 0.;
-	return rgba;
+	return encode_input > 0.5 ? srgb_linear_to_nonlinear(rgba) : rgba;
 }
 
 float4 drawOutput(VertData v_in) : TARGET
@@ -20,6 +20,8 @@ float4 drawOutput(VertData v_in) : TARGET
 	// passes through bit-exact.
 	float4 diff = abs(px - overlay.Sample(textureSampler, v_in.uv));
 	float changed = step(0.5 / 255.0, max(max(diff.r, diff.g), max(diff.b, diff.a)));
+	if (hdr_output > 0.5)
+		return srgb_nonlinear_to_linear(px);
 	return srgb_nonlinear_to_linear(lerp(px, dither(px, v_in.uv), changed));
 }
 

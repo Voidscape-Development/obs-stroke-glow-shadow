@@ -17,6 +17,13 @@ uniform float2 add_val;
 // Output dithering
 uniform float2 dither_size;
 
+// Set when working in a float (non-SDR) color space: the crop/pad pass then
+// sRGB-encodes the linear input itself (extended range, so HDR values above
+// 1.0 survive and the rest of the pipeline is unchanged), and the output
+// pass skips the 8-bit dither and clamping.
+uniform float encode_input = 0.0;
+uniform float hdr_output = 0.0;
+
 sampler_state textureSampler{
     Filter = Linear;
     AddressU = Clamp;
@@ -93,7 +100,7 @@ float4 PSCrop(VertData v_in) : TARGET
 {
 	float4 rgba = image.Sample(padSampler, v_in.uv);
 	rgba.rgb *= (rgba.a > 0.) ? (1. / rgba.a) : 0.;
-	return rgba;
+	return encode_input > 0.5 ? srgb_linear_to_nonlinear(rgba) : rgba;
 }
 
 float4 drawOutput(VertData v_in) : TARGET
@@ -105,8 +112,10 @@ float4 drawOutput(VertData v_in) : TARGET
 	float4 src = input_image.Sample(textureSampler, v_in.uv);
 	float4 diff = abs(px - src);
 	float changed = step(0.5 / 255.0, max(max(diff.r, diff.g), max(diff.b, diff.a)));
-	px.rgb = saturate(px.rgb + dither_noise(pix) * changed);
-	px.a = saturate(px.a + dither_noise(pix + 17.13) * changed);
+	if (hdr_output < 0.5) {
+		px.rgb = saturate(px.rgb + dither_noise(pix) * changed);
+		px.a = saturate(px.a + dither_noise(pix + 17.13) * changed);
+	}
 	return srgb_nonlinear_to_linear(px);
 }
 
@@ -150,7 +159,8 @@ float4 inner_glow(VertData v_in, float4 fill)
 
 	float4 mask_col = glow_mask.Sample(textureSampler, v_in.uv - offset);
 	float4 color = image.Sample(textureSampler, v_in.uv);
-	float3 color_rgb_l = pow(color.rgb, gamma);
+	// max(): wide gamut HDR input can have negative components.
+	float3 color_rgb_l = pow(max(color.rgb, 0.0), gamma);
 	float3 glow_fill_l = pow(fill.rgb, gamma);
 
 	float mask_alpha = clamp(intensity * fill.a * (1.0f - mask_col.r), 0.0f, 1.0f);

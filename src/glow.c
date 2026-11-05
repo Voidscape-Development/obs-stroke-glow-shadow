@@ -57,14 +57,10 @@ void glow_render_padded_input(glow_filter_data_t *data)
 			return;
 		}
 
-		const enum gs_color_space preferred_spaces[] = {
-			GS_CS_SRGB,
-			GS_CS_SRGB_16F,
-			GS_CS_709_EXTENDED,
-		};
-		const enum gs_color_space space = obs_source_get_color_space(
-			input_source, OBS_COUNTOF(preferred_spaces),
-			preferred_spaces);
+		// Sources draw an SDR stroke/glow of their input, so work in
+		// SDR (OBS tonemaps an HDR input when rendering it as SDR).
+		const enum gs_color_space space = GS_CS_SRGB;
+		data->working_space = space;
 
 		uint32_t source_width = obs_source_get_width(input_source);
 		uint32_t source_height = obs_source_get_height(input_source);
@@ -114,6 +110,7 @@ void glow_render_padded_input(glow_filter_data_t *data)
 
 			gs_ortho(0.0f, (float)data->width, 0.0f,
 				 (float)data->height, -100.0f, 100.0f);
+			set_encode_input(effect, data->working_space);
 			const char *technique = "DrawCropPad";
 			while (gs_effect_loop(effect, technique))
 				gs_draw_sprite(texture, 0, data->width,
@@ -127,24 +124,19 @@ void glow_render_padded_input(glow_filter_data_t *data)
 
 		// This is for the filter version
 		// Set up our color space info.
-		const enum gs_color_space preferred_spaces[] = {
-			GS_CS_SRGB,
-			GS_CS_SRGB_16F,
-			GS_CS_709_EXTENDED,
-		};
-
+		// Work in the space we're drawn into (see filter_working_space),
+		// so HDR (float) content isn't clamped to 8-bit SDR.
+		const enum gs_color_space current_space = gs_get_color_space();
 		const enum gs_color_space source_space =
-			obs_source_get_color_space(
-				obs_filter_get_target(input_source),
-				OBS_COUNTOF(preferred_spaces),
-				preferred_spaces);
+			filter_working_space(input_source, 1, &current_space);
+		data->working_space = source_space;
 
 		const enum gs_color_format format =
 			gs_get_format_from_space(source_space);
 
 		// Set up our input_texrender to catch the output texture.
-		data->input_texrender =
-			create_or_reset_texrender(data->input_texrender);
+		data->input_texrender = create_or_reset_texrender_format(
+			data->input_texrender, format);
 		data->input_texture_generated = false;
 
 		// Start the rendering process with our correct color space params,
@@ -175,8 +167,9 @@ void glow_render_padded_input(glow_filter_data_t *data)
 			gs_effect_set_vec2(data->param_add_val, &data->add_val);
 		}
 
-		if (gs_texrender_begin(data->input_texrender, data->width,
-				       data->height)) {
+		if (gs_texrender_begin_with_color_space(data->input_texrender,
+							data->width, data->height,
+							source_space)) {
 
 			gs_blend_state_push();
 			gs_reset_blend_state();
@@ -185,6 +178,7 @@ void glow_render_padded_input(glow_filter_data_t *data)
 
 			gs_ortho(0.0f, (float)data->width, 0.0f,
 				 (float)data->height, -100.0f, 100.0f);
+			set_encode_input(effect, data->working_space);
 			const char *technique = "DrawCropPad";
 			obs_source_process_filter_tech_end(input_source, effect,
 							   data->width,
@@ -265,6 +259,8 @@ void glow_render_cropped_output(glow_filter_data_t *data)
 			gs_effect_set_float(param_decode_output, decode_output);
 		}
 
+		set_hdr_output(effect, GS_CS_SRGB);
+
 		gs_matrix_push();
 		if (data->overflow) {
 			gs_matrix_translate3f(-(float)data->pad_l,
@@ -285,17 +281,7 @@ void glow_render_cropped_output(glow_filter_data_t *data)
 		gs_enable_framebuffer_srgb(previous);
 	} else {
 
-		const enum gs_color_space preferred_spaces[] = {
-			GS_CS_SRGB,
-			GS_CS_SRGB_16F,
-			GS_CS_709_EXTENDED,
-		};
-
-		const enum gs_color_space source_space =
-			obs_source_get_color_space(
-				obs_filter_get_target(data->context),
-				OBS_COUNTOF(preferred_spaces),
-				preferred_spaces);
+		const enum gs_color_space source_space = data->working_space;
 
 		const enum gs_color_format format =
 			gs_get_format_from_space(source_space);
@@ -317,6 +303,8 @@ void glow_render_cropped_output(glow_filter_data_t *data)
 					      gs_texrender_get_texture(
 						      data->input_texrender));
 		}
+
+		set_hdr_output(effect, source_space);
 
 		gs_matrix_push();
 		if (data->overflow) {

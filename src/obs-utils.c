@@ -193,8 +193,26 @@ void source_ref_init(struct source_ref *ref)
 	dstr_init_copy(&ref->resolved_name, "");
 }
 
+static void release_held(struct source_ref *ref)
+{
+	obs_source_t *held = ref->held ? obs_weak_source_get_source(ref->held)
+				       : NULL;
+	if (held) {
+		if (ref->held_view == 2) {
+			obs_source_dec_active(held);
+		} else if (ref->held_view == 1) {
+			obs_source_dec_showing(held);
+		}
+		obs_source_release(held);
+	}
+	obs_weak_source_release(ref->held);
+	ref->held = NULL;
+	ref->held_view = 0;
+}
+
 void source_ref_free(struct source_ref *ref)
 {
+	release_held(ref);
 	obs_weak_source_release(ref->weak);
 	ref->weak = NULL;
 	dstr_free(&ref->name);
@@ -272,14 +290,8 @@ bool source_ref_has_name(struct source_ref *ref)
 gs_texture_t *render_source_to_texture(obs_source_t *source,
 				       gs_texrender_t **texrender)
 {
-	const enum gs_color_space preferred_spaces[] = {
-		GS_CS_SRGB,
-		GS_CS_SRGB_16F,
-		GS_CS_709_EXTENDED,
-	};
-	const enum gs_color_space space = obs_source_get_color_space(
-		source, OBS_COUNTOF(preferred_spaces), preferred_spaces);
-	const enum gs_color_format format = gs_get_format_from_space(space);
+	const enum gs_color_space space = GS_CS_SRGB;
+	const enum gs_color_format format = GS_RGBA;
 
 	const uint32_t width = obs_source_get_width(source);
 	const uint32_t height = obs_source_get_height(source);
@@ -319,4 +331,132 @@ bool is_self_reference(obs_source_t *context, obs_source_t *source)
 		return source == obs_filter_get_parent(context);
 	}
 	return false;
+}
+
+static bool is_supported_space(enum gs_color_space space)
+{
+	return space == GS_CS_SRGB || space == GS_CS_SRGB_16F ||
+	       space == GS_CS_709_EXTENDED;
+}
+
+enum gs_color_space
+filter_working_space(obs_source_t *filter, size_t count,
+		     const enum gs_color_space *preferred_spaces)
+{
+	// Work in the space we are drawn into when we can. OBS then converts
+	// the filtered source on the way in (tonemapping HDR for an SDR
+	// canvas, or expanding SDR for an HDR one) rather than converting our
+	// output, which would go through a texture of the source's size and
+	// clip padding drawn outside the source's bounds.
+	for (size_t i = 0; i < count; i++) {
+		if (is_supported_space(preferred_spaces[i])) {
+			return preferred_spaces[i];
+		}
+	}
+
+	const enum gs_color_space potential_spaces[] = {
+		GS_CS_SRGB,
+		GS_CS_SRGB_16F,
+		GS_CS_709_EXTENDED,
+	};
+	obs_source_t *target = obs_filter_get_target(filter);
+	return target ? obs_source_get_color_space(
+				target, OBS_COUNTOF(potential_spaces),
+				potential_spaces)
+		      : GS_CS_SRGB;
+}
+
+static void set_effect_flag(gs_effect_t *effect, const char *name, bool value)
+{
+	gs_eparam_t *param = gs_effect_get_param_by_name(effect, name);
+	if (param) {
+		gs_effect_set_float(param, value ? 1.0f : 0.0f);
+	}
+}
+
+void set_encode_input(gs_effect_t *effect, enum gs_color_space space)
+{
+	set_effect_flag(effect, "encode_input", space != GS_CS_SRGB);
+}
+
+void set_hdr_output(gs_effect_t *effect, enum gs_color_space space)
+{
+	set_effect_flag(effect, "hdr_output", space != GS_CS_SRGB);
+}
+
+struct find_source_data {
+	obs_source_t *target;
+	bool found;
+};
+
+static void find_source_cb(obs_source_t *parent, obs_source_t *child,
+			   void *param)
+{
+	UNUSED_PARAMETER(parent);
+	struct find_source_data *data = param;
+	if (child == data->target) {
+		data->found = true;
+	}
+}
+
+// True if showing `child` would (indirectly) show `owner` again.
+static bool would_cycle(obs_source_t *child, obs_source_t *owner)
+{
+	if (child == owner) {
+		return true;
+	}
+	struct find_source_data data = {owner, false};
+	obs_source_enum_full_tree(child, find_source_cb, &data);
+	return data.found;
+}
+
+// How often to re-check for a cycle while holding a source: scenes can be
+// edited to create one after the reference was made.
+#define SOURCE_REF_CYCLE_CHECK_SECONDS 1.0f
+
+void source_ref_update_activation(struct source_ref *ref, obs_source_t *owner,
+				  bool used, float seconds)
+{
+	obs_source_t *child = used ? source_ref_get(ref) : NULL;
+	int want_view = 0;
+	if (child && owner) {
+		want_view = obs_source_active(owner)    ? 2
+			    : obs_source_showing(owner) ? 1
+							: 0;
+	}
+
+	obs_source_t *held = ref->held ? obs_weak_source_get_source(ref->held)
+				       : NULL;
+
+	if (child && want_view) {
+		ref->cycle_timer -= seconds;
+		if (child != held || ref->cycle_timer <= 0.0f) {
+			ref->cycle = would_cycle(child, owner);
+			ref->cycle_timer = SOURCE_REF_CYCLE_CHECK_SECONDS;
+		}
+		if (ref->cycle) {
+			want_view = 0;
+		}
+	}
+
+	if (child != held || want_view != ref->held_view) {
+		// Take the new hold before dropping the old one, so a source
+		// that stays referenced never briefly stops showing (which
+		// would e.g. make a browser source refresh).
+		if (child && want_view) {
+			if (want_view == 2) {
+				obs_source_inc_active(child);
+			} else {
+				obs_source_inc_showing(child);
+			}
+		}
+		release_held(ref);
+		if (child && want_view) {
+			ref->held = obs_source_get_weak_source(child);
+			ref->held_view = want_view;
+		}
+	}
+
+	obs_source_release(held);
+	obs_source_release(child);
 }

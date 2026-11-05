@@ -6,67 +6,69 @@
 
 #include <math.h>
 
-struct obs_source_info obs_glow_filter = {
-	.id = "obs_glow_filter",
-	.type = OBS_SOURCE_TYPE_FILTER,
-	.output_flags = OBS_SOURCE_VIDEO | OBS_SOURCE_SRGB,
-	.get_name = glow_filter_name,
-	.create = glow_filter_create,
-	.destroy = glow_filter_destroy,
-	.update = glow_filter_update,
-	.video_render = glow_filter_video_render,
-	.video_tick = glow_filter_video_tick,
-	.get_width = glow_filter_width,
-	.get_height = glow_filter_height,
-	.get_properties = glow_filter_properties,
-	.get_defaults = glow_filter_defaults};
+// Version 1 changed the defaults (see glow_filter_defaults_v1). Filters and
+// sources saved by earlier versions are loaded as version 0, which keeps the
+// old defaults so existing scenes don't change; version 0 is hidden from the
+// add filter/source menus.
+#define GLOW_FILTER_INFO(info_id, info_version, extra_flags, name, create_fn, \
+			 props, defaults)                                     \
+	{                                                                     \
+		.id = info_id, .version = info_version,                       \
+		.type = OBS_SOURCE_TYPE_FILTER,                               \
+		.output_flags = OBS_SOURCE_VIDEO | OBS_SOURCE_SRGB |          \
+				(extra_flags),                                \
+		.get_name = name, .create = create_fn,                        \
+		.destroy = glow_filter_destroy,                               \
+		.update = glow_filter_update,                                 \
+		.video_render = glow_filter_video_render,                     \
+		.video_tick = glow_filter_video_tick,                         \
+		.video_get_color_space = glow_filter_get_color_space,         \
+		.get_width = glow_filter_width,                               \
+		.get_height = glow_filter_height, .get_properties = props,    \
+		.get_defaults = defaults,                                     \
+	}
 
-struct obs_source_info obs_glow_source = {
-	.id = "obs_glow_source",
-	.type = OBS_SOURCE_TYPE_INPUT,
-	.output_flags = OBS_SOURCE_VIDEO | OBS_SOURCE_CUSTOM_DRAW | OBS_SOURCE_SRGB,
-	.get_name = glow_filter_name,
-	.create = glow_filter_create,
-	.destroy = glow_filter_destroy,
-	.update = glow_filter_update,
-	.video_render = glow_filter_video_render,
-	.video_tick = glow_filter_video_tick,
-	.get_width = glow_filter_width,
-	.get_height = glow_filter_height,
-	.get_properties = glow_source_properties,
-	.get_defaults = glow_filter_defaults,
-	.icon_type = OBS_ICON_TYPE_COLOR};
+#define GLOW_SOURCE_INFO(info_id, info_version, extra_flags, name, create_fn, \
+			 props, defaults)                                     \
+	{                                                                     \
+		.id = info_id, .version = info_version,                       \
+		.type = OBS_SOURCE_TYPE_INPUT,                                \
+		.output_flags = OBS_SOURCE_VIDEO | OBS_SOURCE_CUSTOM_DRAW |   \
+				OBS_SOURCE_SRGB | (extra_flags),              \
+		.get_name = name, .create = create_fn,                        \
+		.destroy = glow_filter_destroy,                               \
+		.update = glow_filter_update,                                 \
+		.video_render = glow_filter_video_render,                     \
+		.video_tick = glow_filter_video_tick,                         \
+		.get_width = glow_filter_width,                               \
+		.get_height = glow_filter_height, .get_properties = props,    \
+		.get_defaults = defaults, .icon_type = OBS_ICON_TYPE_COLOR,   \
+	}
 
-struct obs_source_info obs_shadow_filter = {
-	.id = "obs_shadow_filter",
-	.type = OBS_SOURCE_TYPE_FILTER,
-	.output_flags = OBS_SOURCE_VIDEO | OBS_SOURCE_SRGB,
-	.get_name = shadow_filter_name,
-	.create = shadow_filter_create,
-	.destroy = glow_filter_destroy,
-	.update = glow_filter_update,
-	.video_render = glow_filter_video_render,
-	.video_tick = glow_filter_video_tick,
-	.get_width = glow_filter_width,
-	.get_height = glow_filter_height,
-	.get_properties = shadow_filter_properties,
-	.get_defaults = shadow_filter_defaults};
-
-struct obs_source_info obs_shadow_source = {
-	.id = "obs_shadow_source",
-	.type = OBS_SOURCE_TYPE_INPUT,
-	.output_flags = OBS_SOURCE_VIDEO | OBS_SOURCE_CUSTOM_DRAW | OBS_SOURCE_SRGB,
-	.get_name = shadow_filter_name,
-	.create = shadow_filter_create,
-	.destroy = glow_filter_destroy,
-	.update = glow_filter_update,
-	.video_render = glow_filter_video_render,
-	.video_tick = glow_filter_video_tick,
-	.get_width = glow_filter_width,
-	.get_height = glow_filter_height,
-	.get_properties = shadow_source_properties,
-	.get_defaults = shadow_filter_defaults,
-	.icon_type = OBS_ICON_TYPE_COLOR};
+struct obs_source_info obs_glow_filter = GLOW_FILTER_INFO(
+	"obs_glow_filter", 1, 0, glow_filter_name, glow_filter_create,
+	glow_filter_properties, glow_filter_defaults_v1);
+struct obs_source_info obs_glow_filter_v0 = GLOW_FILTER_INFO(
+	"obs_glow_filter", 0, OBS_SOURCE_CAP_OBSOLETE, glow_filter_name,
+	glow_filter_create, glow_filter_properties, glow_filter_defaults);
+struct obs_source_info obs_glow_source = GLOW_SOURCE_INFO(
+	"obs_glow_source", 1, 0, glow_filter_name, glow_filter_create,
+	glow_source_properties, glow_filter_defaults_v1);
+struct obs_source_info obs_glow_source_v0 = GLOW_SOURCE_INFO(
+	"obs_glow_source", 0, OBS_SOURCE_CAP_OBSOLETE, glow_filter_name,
+	glow_filter_create, glow_source_properties, glow_filter_defaults);
+struct obs_source_info obs_shadow_filter = GLOW_FILTER_INFO(
+	"obs_shadow_filter", 1, 0, shadow_filter_name, shadow_filter_create,
+	shadow_filter_properties, shadow_filter_defaults_v1);
+struct obs_source_info obs_shadow_filter_v0 = GLOW_FILTER_INFO(
+	"obs_shadow_filter", 0, OBS_SOURCE_CAP_OBSOLETE, shadow_filter_name,
+	shadow_filter_create, shadow_filter_properties, shadow_filter_defaults);
+struct obs_source_info obs_shadow_source = GLOW_SOURCE_INFO(
+	"obs_shadow_source", 1, 0, shadow_filter_name, shadow_filter_create,
+	shadow_source_properties, shadow_filter_defaults_v1);
+struct obs_source_info obs_shadow_source_v0 = GLOW_SOURCE_INFO(
+	"obs_shadow_source", 0, OBS_SOURCE_CAP_OBSOLETE, shadow_filter_name,
+	shadow_filter_create, shadow_source_properties, shadow_filter_defaults);
 
 static const char *glow_filter_name(void *unused)
 {
@@ -265,7 +267,11 @@ static void glow_filter_video_render(void *data, gs_effect_t *effect)
 	UNUSED_PARAMETER(effect);
 	glow_filter_data_t *filter = data;
 
-	if (filter->rendered) {
+	// Reuse this frame's result for further views (preview, projectors),
+	// unless one wants a different color space.
+	if (filter->rendered &&
+	    (filter->is_source ||
+	     filter->working_space == gs_get_color_space())) {
 		glow_render_cropped_output(filter);
 		return;
 	}
@@ -526,6 +532,21 @@ static void glow_filter_video_tick(void *data, float seconds)
 		source_ref_tick(&filter->input_ref, seconds);
 	}
 
+	// Keep the sources we draw showing/active while we are, as a scene
+	// would. A filter follows its parent, while it is enabled.
+	obs_source_t *owner = filter->is_filter
+				      ? obs_filter_get_parent(filter->context)
+				      : filter->context;
+	const bool enabled =
+		!filter->is_filter || obs_source_enabled(filter->context);
+	source_ref_update_activation(&filter->fill_ref, owner,
+				     enabled && filter->fill_type == GLOW_FILL_TYPE_SOURCE,
+				     seconds);
+	if (filter->is_source) {
+		source_ref_update_activation(&filter->input_ref, owner, true,
+					     seconds);
+	}
+
 	uint32_t base_width = 0;
 	uint32_t base_height = 0;
 	if (filter->is_filter) {
@@ -590,6 +611,39 @@ static void shadow_filter_defaults(obs_data_t *settings)
 	obs_data_set_default_bool(settings, "ignore_source_border", true);
 	obs_data_set_default_double(settings, "threshold_outer", 100.0);
 	obs_data_set_default_double(settings, "threshold_inner", 0.0);
+}
+
+// Defaults for filters/sources created by this version: pad automatically
+// and draw the padding outside the source's bounds, so a new outer glow or
+// shadow isn't clipped at the source's edge and the source doesn't move or
+// resize.
+static void set_padding_defaults_v1(obs_data_t *settings)
+{
+	obs_data_set_default_int(settings, "glow_padding", PADDING_AUTO);
+	obs_data_set_default_bool(settings, "padding_overflow", true);
+}
+
+static void glow_filter_defaults_v1(obs_data_t *settings)
+{
+	glow_filter_defaults(settings);
+	set_padding_defaults_v1(settings);
+}
+
+static void shadow_filter_defaults_v1(obs_data_t *settings)
+{
+	shadow_filter_defaults(settings);
+	set_padding_defaults_v1(settings);
+}
+
+// The filter works in the space it is drawn into where it can (including
+// HDR), so report that. Sources keep the default (SDR sRGB): they
+// draw a glow color or SDR-rendered fill.
+static enum gs_color_space
+glow_filter_get_color_space(void *data, size_t count,
+			    const enum gs_color_space *preferred_spaces)
+{
+	glow_filter_data_t *filter = data;
+	return filter_working_space(filter->context, count, preferred_spaces);
 }
 
 static void load_effects(glow_filter_data_t *filter)

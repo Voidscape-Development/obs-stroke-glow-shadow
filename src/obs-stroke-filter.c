@@ -3,37 +3,57 @@
 #include "stroke.h"
 #include <math.h>
 
-struct obs_source_info obs_stroke_source = {
-	.id = "obs_stroke_source",
-	.type = OBS_SOURCE_TYPE_INPUT,
-	.output_flags = OBS_SOURCE_VIDEO | OBS_SOURCE_CUSTOM_DRAW | OBS_SOURCE_SRGB,
-	.get_name = stroke_filter_name,
-	.create = stroke_filter_create,
-	.destroy = stroke_filter_destroy,
-	.update = stroke_filter_update,
-	.video_render = stroke_filter_video_render,
-	.video_tick = stroke_filter_video_tick,
-	.video_get_color_space = stroke_source_get_color_space,
-	.get_width = stroke_filter_width,
-	.get_height = stroke_filter_height,
-	.get_properties = stroke_source_properties,
-	.get_defaults = stroke_filter_defaults,
-	.icon_type = OBS_ICON_TYPE_COLOR};
+// Version 1 changed the defaults (see stroke_filter_defaults_v1). Filters and
+// sources saved by earlier versions are loaded as version 0, which keeps the
+// old defaults so existing scenes don't change; version 0 is hidden from the
+// add filter/source menus.
+#define STROKE_SOURCE_INFO(info_id, info_version, extra_flags, defaults)     \
+	{                                                                    \
+		.id = info_id, .version = info_version,                      \
+		.type = OBS_SOURCE_TYPE_INPUT,                               \
+		.output_flags = OBS_SOURCE_VIDEO | OBS_SOURCE_CUSTOM_DRAW |  \
+				OBS_SOURCE_SRGB | (extra_flags),             \
+		.get_name = stroke_filter_name,                              \
+		.create = stroke_filter_create,                              \
+		.destroy = stroke_filter_destroy,                            \
+		.update = stroke_filter_update,                              \
+		.video_render = stroke_filter_video_render,                  \
+		.video_tick = stroke_filter_video_tick,                      \
+		.get_width = stroke_filter_width,                            \
+		.get_height = stroke_filter_height,                          \
+		.get_properties = stroke_source_properties,                  \
+		.get_defaults = defaults, .icon_type = OBS_ICON_TYPE_COLOR,  \
+	}
 
-struct obs_source_info obs_stroke_filter = {
-	.id = "obs_stroke_filter",
-	.type = OBS_SOURCE_TYPE_FILTER,
-	.output_flags = OBS_SOURCE_VIDEO | OBS_SOURCE_SRGB | OBS_SOURCE_CUSTOM_DRAW,
-	.get_name = stroke_filter_name,
-	.create = stroke_filter_create,
-	.destroy = stroke_filter_destroy,
-	.update = stroke_filter_update,
-	.video_render = stroke_filter_video_render,
-	.video_tick = stroke_filter_video_tick,
-	.get_width = stroke_filter_width,
-	.get_height = stroke_filter_height,
-	.get_properties = stroke_filter_properties,
-	.get_defaults = stroke_filter_defaults};
+#define STROKE_FILTER_INFO(info_id, info_version, extra_flags, defaults)     \
+	{                                                                    \
+		.id = info_id, .version = info_version,                      \
+		.type = OBS_SOURCE_TYPE_FILTER,                              \
+		.output_flags = OBS_SOURCE_VIDEO | OBS_SOURCE_SRGB |         \
+				OBS_SOURCE_CUSTOM_DRAW | (extra_flags),      \
+		.get_name = stroke_filter_name,                              \
+		.create = stroke_filter_create,                              \
+		.destroy = stroke_filter_destroy,                            \
+		.update = stroke_filter_update,                              \
+		.video_render = stroke_filter_video_render,                  \
+		.video_tick = stroke_filter_video_tick,                      \
+		.video_get_color_space = stroke_filter_get_color_space,      \
+		.get_width = stroke_filter_width,                            \
+		.get_height = stroke_filter_height,                          \
+		.get_properties = stroke_filter_properties,                  \
+		.get_defaults = defaults,                                    \
+	}
+
+struct obs_source_info obs_stroke_source = STROKE_SOURCE_INFO(
+	"obs_stroke_source", 1, 0, stroke_filter_defaults_v1);
+struct obs_source_info obs_stroke_source_v0 =
+	STROKE_SOURCE_INFO("obs_stroke_source", 0, OBS_SOURCE_CAP_OBSOLETE,
+			   stroke_filter_defaults);
+struct obs_source_info obs_stroke_filter = STROKE_FILTER_INFO(
+	"obs_stroke_filter", 1, 0, stroke_filter_defaults_v1);
+struct obs_source_info obs_stroke_filter_v0 =
+	STROKE_FILTER_INFO("obs_stroke_filter", 0, OBS_SOURCE_CAP_OBSOLETE,
+			   stroke_filter_defaults);
 
 static const char *stroke_filter_name(void *unused)
 {
@@ -196,7 +216,11 @@ static void stroke_filter_video_render(void *data, gs_effect_t *effect)
 	UNUSED_PARAMETER(effect);
 	stroke_filter_data_t *filter = data;
 
-	if (filter->rendered) {
+	// Reuse this frame's result for further views (preview, projectors),
+	// unless one wants a different color space.
+	if (filter->rendered &&
+	    (filter->is_source ||
+	     filter->working_space == gs_get_color_space())) {
 		render_cropped_output(filter);
 		return;
 	}
@@ -419,27 +443,15 @@ static obs_properties_t *stroke_source_properties(void *data) {
 	return properties(data, true);
 }
 
-static enum gs_color_space stroke_source_get_color_space(void* data, size_t count, const enum gs_color_space* preferred_spaces) {
-	stroke_filter_data_t* filter = data;
-	UNUSED_PARAMETER(count);
-	UNUSED_PARAMETER(preferred_spaces);
-	const enum gs_color_space potential_spaces[] = {
-		GS_CS_SRGB,
-		GS_CS_SRGB_16F,
-		GS_CS_709_EXTENDED,
-	};
-
-	obs_source_t* input_source = source_ref_get(&filter->input_ref);
-
-	const enum gs_color_space source_space = input_source ? obs_source_get_color_space(
-		input_source, OBS_COUNTOF(potential_spaces), potential_spaces) : GS_CS_SRGB;
-
-
-	if (input_source) {
-		obs_source_release(input_source);
-	}
-
-	return source_space;
+// The filter works in the space it is drawn into where it can (including
+// HDR), so report that. Sources keep the default (SDR sRGB): they
+// draw a stroke color or SDR-rendered fill.
+static enum gs_color_space
+stroke_filter_get_color_space(void *data, size_t count,
+			      const enum gs_color_space *preferred_spaces)
+{
+	stroke_filter_data_t *filter = data;
+	return filter_working_space(filter->context, count, preferred_spaces);
 }
 
 static void stroke_filter_video_tick(void *data, float seconds)
@@ -449,6 +461,21 @@ static void stroke_filter_video_tick(void *data, float seconds)
 	source_ref_tick(&filter->fill_ref, seconds);
 	if (filter->is_source) {
 		source_ref_tick(&filter->input_ref, seconds);
+	}
+
+	// Keep the sources we draw showing/active while we are, as a scene
+	// would. A filter follows its parent, while it is enabled.
+	obs_source_t *owner = filter->is_filter
+				      ? obs_filter_get_parent(filter->context)
+				      : filter->context;
+	const bool enabled =
+		!filter->is_filter || obs_source_enabled(filter->context);
+	source_ref_update_activation(&filter->fill_ref, owner,
+				     enabled && filter->fill_type == STROKE_FILL_TYPE_SOURCE,
+				     seconds);
+	if (filter->is_source) {
+		source_ref_update_activation(&filter->input_ref, owner, true,
+					     seconds);
 	}
 
 	uint32_t base_width = 0;
@@ -504,7 +531,16 @@ static void stroke_filter_defaults(obs_data_t *settings)
 	obs_data_set_default_double(settings, "jump_flood_threshold_inner", 0.0);
 	obs_data_set_default_double(settings, "contour_falloff_start", 0.0);
 	obs_data_set_default_double(settings, "contour_falloff_end", 2000.0);
+}
 
+// Defaults for filters/sources created by this version: pad automatically
+// and draw the padding outside the source's bounds, so a new outer stroke
+// isn't clipped at the source's edge and the source doesn't move or resize.
+static void stroke_filter_defaults_v1(obs_data_t *settings)
+{
+	stroke_filter_defaults(settings);
+	obs_data_set_default_int(settings, "stroke_padding", PADDING_AUTO);
+	obs_data_set_default_bool(settings, "padding_overflow", true);
 }
 
 static void load_effects(stroke_filter_data_t *filter)

@@ -67,6 +67,8 @@ struct stroke_filter_data {
 
 	uint32_t width;
 	uint32_t height;
+	// Color space of the current frame (see filter_working_space).
+	enum gs_color_space working_space;
 
 	// Parameters
 	float stroke_size;

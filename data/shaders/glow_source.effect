@@ -18,6 +18,13 @@ uniform float2 dither_size;
 uniform float content_linear;
 uniform float decode_output;
 
+// Set when working in a float (non-SDR) color space: the crop/pad pass then
+// sRGB-encodes the linear input itself (extended range, so HDR values above
+// 1.0 survive and the rest of the pipeline is unchanged), and the output
+// pass skips the 8-bit dither and clamping.
+uniform float encode_input = 0.0;
+uniform float hdr_output = 0.0;
+
 sampler_state textureSampler{
     Filter = Linear;
     AddressU = Clamp;

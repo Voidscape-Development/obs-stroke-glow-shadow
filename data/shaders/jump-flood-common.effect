@@ -32,6 +32,13 @@ uniform float contour_spacing_power;
 uniform float2 mul_val;
 uniform float2 add_val;
 
+// Set when working in a float (non-SDR) color space: the crop/pad pass then
+// sRGB-encodes the linear input itself (extended range, so HDR values above
+// 1.0 survive and the rest of the pipeline is unchanged), and the output
+// pass skips the 8-bit dither and clamping.
+uniform float encode_input = 0.0;
+uniform float hdr_output = 0.0;
+
 // Value stored for pixels that have no nearest edge point (yet).
 #define NO_SEED 32000.0
 
